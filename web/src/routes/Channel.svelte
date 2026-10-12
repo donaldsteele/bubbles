@@ -57,4 +57,10 @@
   .missing {
     padding: var(--s4);
   }
+  /* Below the navigation toggle (the shell gives this pane no top padding). */
+  @media (max-width: 639px) {
+    .missing {
+      padding-top: 72px;
+    }
+  }
 </style>

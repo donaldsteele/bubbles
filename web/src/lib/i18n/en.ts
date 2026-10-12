@@ -91,6 +91,7 @@ export const en = {
     noteToSelf: '{name} (you)',
     members: 'Members',
     pins: 'Pins',
+    channelOptions: 'Channel settings',
     memberCount: '{n} members',
     memberCountOne: '1 member',
     notifications: 'Notifications',

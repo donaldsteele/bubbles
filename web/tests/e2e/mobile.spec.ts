@@ -1,4 +1,14 @@
-import { composer, expect, message, seed, send, test, threadComposer, type Seed } from './fixtures';
+import {
+  composer,
+  expect,
+  message,
+  openChannel,
+  seed,
+  send,
+  test,
+  threadComposer,
+  type Seed,
+} from './fixtures';
 
 test.use({ specId: 'mobile' });
 test.describe.configure({ mode: 'serial' });
@@ -30,6 +40,22 @@ test('375x812: navigation list, channel, thread and back', async ({ open }) => {
   await expect(list).toBeHidden();
   expect(await noOverflow()).toBe(true);
 
+  // The channel header is one row beside the toggle; its settings fold away.
+  const head = page.getByRole('main').locator('header').first();
+  expect((await head.boundingBox())?.height ?? 0).toBeLessThanOrEqual(72);
+  const toggleBox = await toggle.boundingBox();
+  const titleBox = await page.getByRole('heading', { level: 1 }).boundingBox();
+  expect(titleBox?.x ?? 0).toBeGreaterThanOrEqual((toggleBox?.x ?? 0) + (toggleBox?.width ?? 0));
+  const settings = head.getByRole('button', { name: 'Channel settings' });
+  const level = head.getByRole('combobox', { name: 'Notifications' });
+  await expect(level).toBeHidden();
+  await settings.click();
+  await expect(settings).toHaveAttribute('aria-expanded', 'true');
+  await expect(level).toBeVisible();
+  expect(await noOverflow()).toBe(true);
+  await settings.click();
+  await expect(level).toBeHidden();
+
   // A thread takes the whole width; Close brings the channel back.
   const root = message(page, 'hello from the phone crowd');
   await expect(root).toBeVisible();
@@ -53,4 +79,13 @@ test('375x812: navigation list, channel, thread and back', async ({ open }) => {
   await expect(thread).toBeHidden();
   await send(page, 'sent from the channel view');
   await expect(message(page, 'sent from the channel view')).toBeVisible();
+});
+
+test('1280x800: the channel header shows its settings inline', async ({ open }) => {
+  const { page } = await open(users.admin);
+  await page.goto('/');
+  await openChannel(page, 'general');
+  const head = page.getByRole('main').locator('header').first();
+  await expect(head.getByRole('combobox', { name: 'Notifications' })).toBeVisible();
+  await expect(head.getByRole('button', { name: 'Channel settings' })).toBeHidden();
 });

@@ -36,7 +36,8 @@ export function applyEvent(ev: WsEvent): void {
       const m = data as unknown as Message;
       const existed = messages.find(m.channel_id, m.id) !== undefined;
       messages.applyEvent(ev.type, ev.channel_id, data);
-      if (!existed && m.author && m.author.id !== meId && !m.thread_root_id && !m.deleted) {
+      // Same rule as the server's unread counts: thread replies count, system messages do not.
+      if (!existed && m.author && m.author.id !== meId && m.kind !== 'system' && !m.deleted) {
         const men = m.mentions;
         const mentioned =
           !!men && (men.channel || men.here || (!!meId && men.user_ids.includes(meId)));

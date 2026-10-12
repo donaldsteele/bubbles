@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -158,4 +159,59 @@ func TestMarkReadOnlyMovesForward(t *testing.T) {
 	pm := e.post(alice, pub.ID, "x")
 	_, err = e.svc.MarkRead(e.ctx, outsider.Actor, pub.ID, pm.ID)
 	wantErr(t, err, ErrForbidden)
+}
+
+func TestMarkReadCoversThreadRepliesAfterTheNewestRoot(t *testing.T) {
+	e := newEnv(t)
+	alice := e.human("alice", protocol.RoleMember)
+	bob := e.human("bob", protocol.RoleMember)
+	ch := e.channel(alice, "talk", protocol.ChannelPublic, bob)
+
+	root := e.post(alice, ch.ID, "vote in the thread")
+	own := e.post(bob, ch.ID, "bob's newest root")
+	e.reply(alice, ch.ID, root.ID, "reply 1")
+	r2 := e.reply(alice, ch.ID, root.ID, "reply 2 @bob")
+	if got := unreadOf(t, e, bob, ch.ID); got.Unread != 3 || got.Mentions != 1 {
+		t.Fatalf("before reading: %+v, want 3 unread and 1 mention", got)
+	}
+
+	// Reading up to the newest root also reads the replies after it.
+	ev, err := e.svc.MarkRead(e.ctx, bob.Actor, ch.ID, own.ID)
+	if err != nil || ev.LastReadID != r2.ID || ev.Unread != 0 || ev.Mentions != 0 {
+		t.Fatalf("MarkRead(newest root): %+v, %v", ev, err)
+	}
+
+	// A reply that arrives while the channel is open: the same root id reads it.
+	r3 := e.reply(alice, ch.ID, root.ID, "reply 3")
+	before := e.head()
+	ev, err = e.svc.MarkRead(e.ctx, bob.Actor, ch.ID, own.ID)
+	if err != nil || ev.LastReadID != r3.ID || ev.Unread != 0 {
+		t.Fatalf("MarkRead after a live reply: %+v, %v", ev, err)
+	}
+	wantTypes(t, e.events(before), "read.updated")
+
+	// A newer root someone else wrote keeps the marker at the id given.
+	next := e.post(alice, ch.ID, "a new root")
+	e.reply(alice, ch.ID, root.ID, "reply 4")
+	ev, err = e.svc.MarkRead(e.ctx, bob.Actor, ch.ID, own.ID)
+	if err != nil || ev.LastReadID != r3.ID || ev.Unread != 2 {
+		t.Fatalf("MarkRead with a newer root: %+v, %v", ev, err)
+	}
+	ev, err = e.svc.MarkRead(e.ctx, bob.Actor, ch.ID, next.ID)
+	if err != nil || ev.Unread != 0 || ev.LastReadID <= next.ID {
+		t.Fatalf("MarkRead(new root): %+v, %v", ev, err)
+	}
+
+	// A page around a marker on a reply is anchored at the newest root before it.
+	p, err := e.svc.ListMessages(e.ctx, bob.Actor, ch.ID, PageOptions{Limit: 3, Around: r2.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, len(p.Items))
+	for i, m := range p.Items {
+		got[i] = m.ID
+	}
+	if want := []string{root.ID, own.ID, next.ID}; !slices.Equal(got, want) {
+		t.Fatalf("around a reply: %v, want %v", got, want)
+	}
 }

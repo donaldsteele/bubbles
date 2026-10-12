@@ -183,8 +183,9 @@
     main {
       padding-top: 56px;
     }
+    /* The channel view starts at the top; its header leaves room for the toggle. */
     main.flush {
-      padding-top: 56px;
+      padding-top: 0;
     }
     /* A thread, pins or members replace the channel view; Close steps back. */
     .drawer {

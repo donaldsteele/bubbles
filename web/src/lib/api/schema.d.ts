@@ -627,7 +627,7 @@ export interface paths {
     put?: never;
     /**
      * Mark a channel read up to a message
-     * @description The read marker only moves forward.
+     * @description The read marker only moves forward. Thread replies count as unread; when nothing after the message would count except thread replies, the marker moves past the channel's newest message, so reading up to the newest root also reads the replies after it.
      */
     post: operations['markChannelRead'];
     delete?: never;
@@ -2880,7 +2880,7 @@ export interface components {
     Before: string;
     /** @description Page of items newer than this id. Exclusive with `before` and `around`. */
     After: string;
-    /** @description Page centred on this id. Exclusive with `before` and `after`. */
+    /** @description Page centred on this id. Exclusive with `before` and `after`. On the channel list, a thread reply's id (a read marker can sit on one) centres the page on the newest root at or before it. */
     Around: string;
     /** @description Page size. */
     Limit: number;
@@ -3925,7 +3925,7 @@ export interface operations {
         before?: components['parameters']['Before'];
         /** @description Page of items newer than this id. Exclusive with `before` and `around`. */
         after?: components['parameters']['After'];
-        /** @description Page centred on this id. Exclusive with `before` and `after`. */
+        /** @description Page centred on this id. Exclusive with `before` and `after`. On the channel list, a thread reply's id (a read marker can sit on one) centres the page on the newest root at or before it. */
         around?: components['parameters']['Around'];
         /** @description Page size. */
         limit?: components['parameters']['Limit'];
@@ -4010,7 +4010,7 @@ export interface operations {
         before?: components['parameters']['Before'];
         /** @description Page of items newer than this id. Exclusive with `before` and `around`. */
         after?: components['parameters']['After'];
-        /** @description Page centred on this id. Exclusive with `before` and `after`. */
+        /** @description Page centred on this id. Exclusive with `before` and `after`. On the channel list, a thread reply's id (a read marker can sit on one) centres the page on the newest root at or before it. */
         around?: components['parameters']['Around'];
         /** @description Page size. */
         limit?: components['parameters']['Limit'];

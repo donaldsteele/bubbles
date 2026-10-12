@@ -569,6 +569,21 @@ func (s *Service) ListMessages(ctx context.Context, actor Actor, channelID strin
 	if _, _, err := authorize(ctx, db, actor, ActReadContent, channelID); err != nil {
 		return protocol.MessagePage{}, err
 	}
+	if o.Around != "" {
+		// A read marker can sit on a thread reply (see readTarget); a page
+		// around it is anchored at the newest root at or before it.
+		var root sql.NullString
+		err := db.QueryRowContext(ctx, `SELECT (SELECT id FROM messages
+				WHERE channel_id = ? AND thread_root_id IS NULL AND id <= r.id ORDER BY id DESC LIMIT 1)
+			FROM messages r WHERE r.id = ? AND r.channel_id = ? AND r.thread_root_id IS NOT NULL`,
+			channelID, o.Around, channelID).Scan(&root)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return protocol.MessagePage{}, fmt.Errorf("list messages: %w", err)
+		}
+		if root.Valid {
+			o.Around = root.String
+		}
+	}
 	return pageMessages(ctx, db, `channel_id = ? AND thread_root_id IS NULL`, []any{channelID}, o)
 }
 

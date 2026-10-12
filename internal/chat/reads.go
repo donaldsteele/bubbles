@@ -9,9 +9,10 @@ import (
 	"github.com/donaldsteele/bubbles/pkg/protocol"
 )
 
-// MarkRead moves the actor's read marker in a channel forward to messageID.
-// The marker never moves backwards: an older (or equal) id changes nothing
-// and emits nothing. It emits read.updated to the actor, carrying the
+// MarkRead moves the actor's read marker in a channel forward to messageID,
+// or past the thread replies after it (see readTarget). The marker never
+// moves backwards: an older (or equal) target changes nothing and emits
+// nothing. It emits read.updated to the actor, carrying the
 // resulting unread and mention counts.
 func (s *Service) MarkRead(ctx context.Context, actor Actor, channelID, messageID string) (protocol.ReadEvent, error) {
 	return run(ctx, s, func(tx *store.Tx) (protocol.ReadEvent, error) { return s.MarkReadTx(tx, actor, channelID, messageID) })
@@ -41,10 +42,13 @@ func (s *Service) MarkReadTx(tx *store.Tx, actor Actor, channelID, messageID str
 	if err := tx.QueryRowContext(ctx, `SELECT last_read_id FROM memberships WHERE channel_id = ? AND user_id = ?`, channelID, actor.ID).Scan(&current); err != nil {
 		return protocol.ReadEvent{}, fmt.Errorf("load read marker: %w", err)
 	}
-	marker := messageID
-	moved := !current.Valid || messageID > current.String
+	marker, err := readTarget(ctx, tx, actor.ID, channelID, messageID)
+	if err != nil {
+		return protocol.ReadEvent{}, err
+	}
+	moved := !current.Valid || marker > current.String
 	if moved {
-		if _, err := tx.Exec(`UPDATE memberships SET last_read_id = ? WHERE channel_id = ? AND user_id = ?`, messageID, channelID, actor.ID); err != nil {
+		if _, err := tx.Exec(`UPDATE memberships SET last_read_id = ? WHERE channel_id = ? AND user_id = ?`, marker, channelID, actor.ID); err != nil {
 			return protocol.ReadEvent{}, fmt.Errorf("mark read: %w", err)
 		}
 	} else {
@@ -64,6 +68,33 @@ func (s *Service) MarkReadTx(tx *store.Tx, actor Actor, channelID, messageID str
 		}
 	}
 	return ev, nil
+}
+
+// readTarget is where reading up to messageID puts the marker. Thread replies
+// count as unread, but the channel view shows them only as reply counts on
+// their roots and marks read up to the newest root, so a reply newer than
+// every root would stay unread. When nothing after messageID would count as
+// unread except thread replies, the marker moves past the channel's newest
+// message instead.
+func readTarget(ctx context.Context, tx *store.Tx, userID, channelID, messageID string) (string, error) {
+	var roots int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages
+		WHERE channel_id = ? AND id > ? AND thread_root_id IS NULL
+			AND author_id != ? AND kind != 'system' AND deleted_at IS NULL`,
+		channelID, messageID, userID).Scan(&roots); err != nil {
+		return "", fmt.Errorf("check newer messages: %w", err)
+	}
+	if roots > 0 {
+		return messageID, nil
+	}
+	var newest string
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(id) FROM messages WHERE channel_id = ?`, channelID).Scan(&newest); err != nil {
+		return "", fmt.Errorf("find newest message: %w", err)
+	}
+	if newest > messageID {
+		return newest, nil
+	}
+	return messageID, nil
 }
 
 // loadUnread returns the unread and mention counts of the user's channels, or

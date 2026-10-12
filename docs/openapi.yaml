@@ -1194,7 +1194,10 @@ paths:
       operationId: markChannelRead
       summary: Mark a channel read up to a message
       description: >-
-        The read marker only moves forward.
+        The read marker only moves forward. Thread replies count as unread; when
+        nothing after the message would count except thread replies, the marker
+        moves past the channel's newest message, so reading up to the newest root
+        also reads the replies after it.
       security:
         - cookieAuth: []
       parameters:
@@ -3809,7 +3812,10 @@ components:
     Around:
       name: around
       in: query
-      description: Page centred on this id. Exclusive with `before` and `after`.
+      description: >-
+        Page centred on this id. Exclusive with `before` and `after`. On the
+        channel list, a thread reply's id (a read marker can sit on one) centres
+        the page on the newest root at or before it.
       schema:
         type: string
         minLength: 1

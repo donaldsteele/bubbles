@@ -132,18 +132,29 @@
     void tick().then(() => atBottom && scrollToBottom());
   });
 
-  // Read marking: visible, scrolled to the bottom, window focused.
+  // Read marking: visible, scrolled to the bottom, window focused. Thread
+  // replies raise the count without changing lastId, so the guard keys on
+  // both (and records the count a mark left behind, so a count the server
+  // cannot clear is not sent again); the server reads the replies after the
+  // newest root.
   $effect(() => {
     const id = lastId;
     if (!id || !atBottom || win.hasAfter || !windowFocused) return;
     const stored = channels.memberships[channelId]?.last_read_id;
-    if (lastMarked === id || (stored && stored >= id && unreadCount === 0)) return;
+    if (unreadCount === 0 && stored && stored >= id) return;
+    const key = `${id}/${unreadCount}`;
+    if (lastMarked === key) return;
     const ch = channelId;
     const timer = setTimeout(() => {
-      lastMarked = id;
-      markRead(ch, id).catch(() => {
-        lastMarked = '';
-      });
+      lastMarked = key;
+      markRead(ch, id).then(
+        () => {
+          if (ch === channelId) lastMarked = `${id}/${unread.get(ch).unread}`;
+        },
+        () => {
+          lastMarked = '';
+        },
+      );
     }, 400);
     return () => clearTimeout(timer);
   });
