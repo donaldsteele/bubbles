@@ -30,7 +30,7 @@ func TestWindowAllowed(t *testing.T) {
 }
 
 func TestOriginAllowed(t *testing.T) {
-	const handoff = "https://bubbles.lan:8443"
+	const handoff = "https://bubbles.lan:28225"
 	tests := []struct {
 		name      string
 		goos      string

@@ -156,7 +156,7 @@ func (a *trayApp) prepare(ctx context.Context, rawURL, port string, reconfirm bo
 	}
 	der, fp, err := bubblesclient.FetchCA(ctx, onboarding)
 	if err != nil {
-		return fail("Could not download the server certificate. Check the address and that the onboarding port (default 8080) is reachable.")
+		return fail("Could not download the server certificate. Check the address and that the onboarding port (default 28226) is reachable.")
 	}
 	trust := a.trustFor(serverURL)
 	prompt, err := trust.Propose(fp)

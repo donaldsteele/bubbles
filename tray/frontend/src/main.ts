@@ -70,7 +70,7 @@ function showServer(state: ViewState): void {
     value: state.serverUrl,
   });
   const port = el("input", {
-    type: "text", id: "port", inputmode: "numeric", autocomplete: "off", placeholder: "8080", value: state.port,
+    type: "text", id: "port", inputmode: "numeric", autocomplete: "off", placeholder: "28226", value: state.port,
   });
   const found = el("p", { class: "muted" }, "Looking for servers on this network...");
   const cont = el("button", { class: "primary", type: "button" }, "Continue");

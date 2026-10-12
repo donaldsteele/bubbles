@@ -11,7 +11,7 @@ import (
 const (
 	testMCPToken = "bub_SECRETSECRETSECRETSECRET"
 	testMCPFP    = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	testMCPConn  = "bubbles://127.0.0.1:8443/?token=" + testMCPToken + "&fp=" + testMCPFP
+	testMCPConn  = "bubbles://127.0.0.1:28225/?token=" + testMCPToken + "&fp=" + testMCPFP
 )
 
 func runMCPTest(t *testing.T, env map[string]string, stdin string, args ...string) (code int, stdout, stderr string) {
@@ -34,7 +34,7 @@ func TestMCPCommandArguments(t *testing.T) {
 		{"unknown flag", nil, []string{"--nope"}, 2},
 		{"stray argument", nil, []string{"--conn", testMCPConn, "x"}, 2},
 		{"bad connection string", nil, []string{"--conn", "https://x/?token=" + testMCPToken}, 2},
-		{"no fingerprint", nil, []string{"--conn", "bubbles://127.0.0.1:8443/?token=" + testMCPToken}, 2},
+		{"no fingerprint", nil, []string{"--conn", "bubbles://127.0.0.1:28225/?token=" + testMCPToken}, 2},
 		{"flag", nil, []string{"--conn", testMCPConn}, 0},
 		{"environment", map[string]string{connEnv: testMCPConn}, nil, 0},
 	}

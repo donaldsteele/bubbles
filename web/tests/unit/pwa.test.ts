@@ -9,7 +9,7 @@ import {
 } from '../../src/lib/pwa/sw-core';
 import { nextUpdateState, type UpdateState } from '../../src/lib/pwa/update';
 
-const ORIGIN = 'https://bubbles.local:8443';
+const ORIGIN = 'https://bubbles.local:28225';
 const u = (p: string) => new URL(p, ORIGIN);
 
 describe('classify', () => {
@@ -35,7 +35,7 @@ describe('classify', () => {
     expect(classify(new URL('https://example.com/x.js'), ORIGIN, 'GET', 'no-cors')).toBe(
       'network-only',
     );
-    expect(classify(new URL('wss://bubbles.local:8443/api/v1/ws'), ORIGIN, 'GET', 'cors')).toBe(
+    expect(classify(new URL('wss://bubbles.local:28225/api/v1/ws'), ORIGIN, 'GET', 'cors')).toBe(
       'network-only',
     );
   });

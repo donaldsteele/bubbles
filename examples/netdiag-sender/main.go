@@ -4,8 +4,8 @@
 // alerts survive brief server outages. An "OK again" notice resolves the
 // alert with the same dedupe key.
 //
-//	netdiag-sender --conn 'bubbles://192.168.1.20:8443/?token=bub_...&fp=sha256:...' < notices.jsonl
-//	netdiag-sender --pair https://192.168.1.20:8443 --onboard http://192.168.1.20:8080 --demo
+//	netdiag-sender --conn 'bubbles://192.168.1.20:28225/?token=bub_...&fp=sha256:...' < notices.jsonl
+//	netdiag-sender --pair https://192.168.1.20:28225 --onboard http://192.168.1.20:28226 --demo
 package main
 
 import (
@@ -104,8 +104,8 @@ type options struct {
 func main() {
 	var o options
 	flag.StringVar(&o.conn, "conn", os.Getenv("BUBBLES_CONN"), "connection string bubbles://host:port/?token=...&fp=sha256:... (or env BUBBLES_CONN)")
-	flag.StringVar(&o.pair, "pair", "", "HTTPS server URL to pair with, for example https://192.168.1.20:8443")
-	flag.StringVar(&o.onboard, "onboard", "", "onboarding HTTP URL used to fetch the CA, for example http://192.168.1.20:8080")
+	flag.StringVar(&o.pair, "pair", "", "HTTPS server URL to pair with, for example https://192.168.1.20:28225")
+	flag.StringVar(&o.onboard, "onboard", "", "onboarding HTTP URL used to fetch the CA, for example http://192.168.1.20:28226")
 	flag.StringVar(&o.fp, "fp", "", "expected CA fingerprint; skips the interactive confirmation when pairing")
 	flag.StringVar(&o.save, "save", "", "after pairing, write the connection string to this file (mode 0600)")
 	flag.StringVar(&o.channel, "channel", "netdiag-alerts", "channel name or id for alerts")

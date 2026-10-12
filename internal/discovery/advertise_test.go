@@ -27,7 +27,7 @@ func TestTXT(t *testing.T) {
 		port int
 		want map[string]string
 	}{
-		{"normal", "ba7816bf8f01cfea", 8080, map[string]string{"v": "1", "fp": "ba7816bf8f01cfea", "onboard": "8080", "path": "/"}},
+		{"normal", "ba7816bf8f01cfea", 28226, map[string]string{"v": "1", "fp": "ba7816bf8f01cfea", "onboard": "28226", "path": "/"}},
 		{"byo", "", 80, map[string]string{"v": "1", "fp": "", "onboard": "80", "path": "/"}},
 	}
 	for _, tc := range tests {

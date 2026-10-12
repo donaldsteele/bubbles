@@ -8,7 +8,7 @@ ephemeral signals. Every wire type lives in `pkg/protocol` (`event.go`,
 ## Endpoint
 
 ```
-wss://<host>:8443/api/v1/ws?resume=<seq>&instance=<instance_id>&epoch=<n>
+wss://<host>:28225/api/v1/ws?resume=<seq>&instance=<instance_id>&epoch=<n>
 ```
 
 | Query param | Required | Meaning |

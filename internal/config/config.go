@@ -22,8 +22,8 @@ import (
 
 // Default listen addresses and mDNS host name.
 const (
-	DefaultHTTPSAddr = ":8443"
-	DefaultHTTPAddr  = ":8080"
+	DefaultHTTPSAddr = ":28225"
+	DefaultHTTPAddr  = ":28226"
 	DefaultMDNSName  = "bubbles"
 )
 

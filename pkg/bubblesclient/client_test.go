@@ -61,9 +61,9 @@ func TestPinnedTLS(t *testing.T) {
 func TestNewValidation(t *testing.T) {
 	for _, cfg := range []Config{
 		{BaseURL: ""},
-		{BaseURL: "http://127.0.0.1:8443"},
-		{BaseURL: "https://127.0.0.1:8443/x"},
-		{BaseURL: "https://127.0.0.1:8443", CAFingerprint: "nope"},
+		{BaseURL: "http://127.0.0.1:28225"},
+		{BaseURL: "https://127.0.0.1:28225/x"},
+		{BaseURL: "https://127.0.0.1:28225", CAFingerprint: "nope"},
 	} {
 		if _, err := New(cfg); err == nil {
 			t.Errorf("New(%+v) succeeded", cfg)

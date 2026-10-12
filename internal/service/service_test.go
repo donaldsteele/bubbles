@@ -70,7 +70,7 @@ func TestDeployFilesMatchTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range FirewallAddCommands(8443, 8080) {
+	for _, c := range FirewallAddCommands(28225, 28226) {
 		manual := strings.Join(c[:3], " ") + " " + strings.Join(c[3:5], " ") + ` name="` + strings.TrimPrefix(c[5], "name=") + `" ` + strings.Join(c[6:], " ")
 		if !strings.Contains(normalize(string(readme)), manual) {
 			t.Errorf("windows README lacks %q", manual)
@@ -79,7 +79,7 @@ func TestDeployFilesMatchTemplates(t *testing.T) {
 }
 
 func TestRenderSystemdUnitHardening(t *testing.T) {
-	unit, err := RenderSystemdUnit(Spec{Exe: "/opt/b/bubbles", DataDir: "/srv/b", HTTPSAddr: ":9443", HTTPAddr: ":8080"})
+	unit, err := RenderSystemdUnit(Spec{Exe: "/opt/b/bubbles", DataDir: "/srv/b", HTTPSAddr: ":9443", HTTPAddr: ":28226"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,10 +119,10 @@ func TestRenderLaunchdPlistEscapes(t *testing.T) {
 
 func TestFirewallCommandsExact(t *testing.T) {
 	want := [][]string{
-		{"netsh", "advfirewall", "firewall", "add", "rule", "name=bubbles HTTPS", "dir=in", "action=allow", "protocol=TCP", "localport=8443", "profile=private"},
-		{"netsh", "advfirewall", "firewall", "add", "rule", "name=bubbles onboarding", "dir=in", "action=allow", "protocol=TCP", "localport=8080", "profile=private"},
+		{"netsh", "advfirewall", "firewall", "add", "rule", "name=bubbles HTTPS", "dir=in", "action=allow", "protocol=TCP", "localport=28225", "profile=private"},
+		{"netsh", "advfirewall", "firewall", "add", "rule", "name=bubbles onboarding", "dir=in", "action=allow", "protocol=TCP", "localport=28226", "profile=private"},
 	}
-	if got := FirewallAddCommands(8443, 8080); !reflect.DeepEqual(got, want) {
+	if got := FirewallAddCommands(28225, 28226); !reflect.DeepEqual(got, want) {
 		t.Errorf("add = %v", got)
 	}
 	wantDel := [][]string{
@@ -136,7 +136,7 @@ func TestFirewallCommandsExact(t *testing.T) {
 
 func TestSpecPorts(t *testing.T) {
 	h, o, err := Spec{}.Ports()
-	if err != nil || h != 8443 || o != 8080 {
+	if err != nil || h != 28225 || o != 28226 {
 		t.Fatalf("defaults = %d %d %v", h, o, err)
 	}
 	h, o, err = Spec{HTTPSAddr: "0.0.0.0:9443", HTTPAddr: ":9080"}.Ports()
@@ -279,7 +279,7 @@ func TestNonAdminIsRefused(t *testing.T) {
 }
 
 func TestServeArgsOmitDefaults(t *testing.T) {
-	got := Spec{DataDir: "/d", HTTPSAddr: ":8443", HTTPAddr: ":8080"}.ServeArgs()
+	got := Spec{DataDir: "/d", HTTPSAddr: ":28225", HTTPAddr: ":28226"}.ServeArgs()
 	if !reflect.DeepEqual(got, []string{"serve", "--data-dir", "/d"}) {
 		t.Errorf("ServeArgs = %v", got)
 	}

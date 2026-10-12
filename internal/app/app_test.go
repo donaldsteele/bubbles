@@ -303,16 +303,16 @@ func TestGuardOnBothListeners(t *testing.T) {
 
 func TestURLsUseLANAddressesWhenBoundToAll(t *testing.T) {
 	h := start(t, testConfig(t))
-	all := fakeListener{addr: &net.TCPAddr{IP: net.IPv6unspecified, Port: 8443}}
+	all := fakeListener{addr: &net.TCPAddr{IP: net.IPv6unspecified, Port: 28225}}
 	h.lan.set("192.168.1.20", "fe80::1", "10.0.0.5")
-	if got := strings.Join(baseURLs("https", h.app.urlHosts(all), 8443), " "); got != "https://192.168.1.20:8443/ https://10.0.0.5:8443/" {
+	if got := strings.Join(baseURLs("https", h.app.urlHosts(all), 28225), " "); got != "https://192.168.1.20:28225/ https://10.0.0.5:28225/" {
 		t.Errorf("URLs = %s", got)
 	}
 	h.lan.set()
 	if got := h.app.urlHosts(all); len(got) != 1 || got[0] != "127.0.0.1" {
 		t.Errorf("hosts without LAN = %v", got)
 	}
-	bound := fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("10.1.2.3"), Port: 8443}}
+	bound := fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("10.1.2.3"), Port: 28225}}
 	if got := h.app.urlHosts(bound); len(got) != 1 || got[0] != "10.1.2.3" {
 		t.Errorf("hosts of a bound listener = %v", got)
 	}

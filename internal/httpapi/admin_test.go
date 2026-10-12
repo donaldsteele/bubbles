@@ -24,7 +24,7 @@ func (f fakeAdminHost) Host() HostStatus {
 	}
 	return HostStatus{
 		StartedAt: f.start, Connections: 3,
-		HTTPSURLs: []string{"https://192.168.1.20:8443/"}, OnboardingURLs: []string{"http://192.168.1.20:8080/"},
+		HTTPSURLs: []string{"https://192.168.1.20:28225/"}, OnboardingURLs: []string{"http://192.168.1.20:28226/"},
 		TLS: tlsca.Status{
 			Mode: mode, CAFingerprint: "AB:CD", LeafFingerprint: "EF:01",
 			LeafNotAfter: f.start.Add(90 * 24 * time.Hour), SANs: []string{"192.168.1.20", "bubbles.local"},

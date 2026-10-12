@@ -16,7 +16,7 @@ formats are in [openapi.yaml](openapi.yaml) and [protocol.md](protocol.md).
 ## Incoming webhooks
 
 An admin creates a webhook for one channel in the admin UI and gets a URL once:
-`https://host:8443/hooks/bwh_...`. The token in the URL is the only credential; keep it
+`https://host:28225/hooks/bwh_...`. The token in the URL is the only credential; keep it
 secret and revoke it in the admin UI if it leaks. Each webhook accepts 30 posts per minute
 (burst 10); beyond that the answer is `429` with `Retry-After`. The answer to a good post is
 `200` with the text `ok`. Bodies are limited to 256 KiB.
@@ -26,7 +26,7 @@ A webhook message never mentions anyone, whatever the payload says.
 ### Native alert
 
 ```sh
-curl --cacert bubbles-ca.pem https://192.168.1.20:8443/hooks/bwh_XXXX \
+curl --cacert bubbles-ca.pem https://192.168.1.20:28225/hooks/bwh_XXXX \
   -H 'Content-Type: application/json' \
   -d '{"alert": {"severity": "warning", "title": "Backup is late",
        "text": "Last success 3 days ago", "dedupe_key": "backup:nas",
@@ -46,7 +46,7 @@ subset is `text` (mrkdwn), `username`, `icon_emoji`, `attachments[]` (`color`, `
 `(unsupported block)` note. The legacy form encoding (`payload=<json>`) is accepted too.
 
 ```sh
-curl --cacert bubbles-ca.pem https://192.168.1.20:8443/hooks/bwh_XXXX \
+curl --cacert bubbles-ca.pem https://192.168.1.20:28225/hooks/bwh_XXXX \
   -d 'payload={"text":"Deploy *finished* in <https://ci.local/run/42|run 42>"}'
 ```
 
@@ -57,7 +57,7 @@ The token (`bub_...`) is shown once together with a connection string. Send it a
 token.
 
 ```sh
-export B=https://192.168.1.20:8443 H='Authorization: Bearer bub_XXXX'
+export B=https://192.168.1.20:28225 H='Authorization: Bearer bub_XXXX'
 
 # who am I
 curl --cacert bubbles-ca.pem -H "$H" $B/api/v1/apps/self
@@ -140,7 +140,7 @@ The package `pkg/bubblesclient` depends only on the standard library,
 
 ```go
 cfg, err := bubblesclient.ParseConnectionString(os.Getenv("BUBBLES_CONN"))
-// bubbles://192.168.1.20:8443/?token=bub_...&fp=sha256:<64 hex>
+// bubbles://192.168.1.20:28225/?token=bub_...&fp=sha256:<64 hex>
 if err != nil { log.Fatal(err) }
 c, err := bubblesclient.New(cfg) // TLS trusts only the pinned CA
 if err != nil { log.Fatal(err) }
@@ -191,10 +191,10 @@ Pairing gets an app a token without anyone copying secrets around.
 1. **Find the server.** `bubblesclient.Discover(ctx, 3*time.Second)` browses mDNS for
    `_bubbles._tcp` (TXT: `v=1`, `fp=<first 16 hex of the CA SHA-256>`, `onboard=<http port>`,
    `path=/`). Or just use the address you were given.
-2. **Fetch and confirm the CA.** `FetchCA(ctx, "http://host:8080")` returns the CA and its
+2. **Fetch and confirm the CA.** `FetchCA(ctx, "http://host:28226")` returns the CA and its
    fingerprint over the unauthenticated onboarding port. Show
    `FormatFingerprint(fp)` to the user and have them compare it with the admin UI.
-3. **Request.** `RequestPairing(ctx, "https://host:8443", fp, protocol.PairingRequest{AppName: "netdiag", RequestedScopes: []string{"alerts:write"}})`
+3. **Request.** `RequestPairing(ctx, "https://host:28225", fp, protocol.PairingRequest{AppName: "netdiag", RequestedScopes: []string{"alerts:write"}})`
    pins the CA from here on. Show `p.Code()` (6 digits) to the user.
 4. **Approve.** An admin sees the pending request with the code, the requester's IP and the
    CA fingerprint, picks scopes and channels (optionally creating `#<app>-alerts`) and

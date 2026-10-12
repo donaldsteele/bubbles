@@ -41,7 +41,7 @@ func mcpCmd(ctx context.Context, args []string, getenv func(string) string, in i
 	fs := flag.NewFlagSet("bubbles mcp", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	fs.Usage = func() {
-		fmt.Fprintln(errOut, `usage: bubbles mcp [--conn "bubbles://host:8443/?token=…&fp=sha256:…"]`)
+		fmt.Fprintln(errOut, `usage: bubbles mcp [--conn "bubbles://host:28225/?token=…&fp=sha256:…"]`)
 		fmt.Fprintf(errOut, "       The connection string may also be given in $%s, which keeps the token out of the process list.\n", connEnv)
 	}
 	conn := fs.String("conn", "", "connection string of the app token")

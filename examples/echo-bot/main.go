@@ -1,7 +1,7 @@
 // Command echo-bot registers a /echo slash command and answers every
 // invocation with its arguments, visible only to the person who ran it.
 //
-//	echo-bot --conn 'bubbles://192.168.1.20:8443/?token=bub_...&fp=sha256:...'
+//	echo-bot --conn 'bubbles://192.168.1.20:28225/?token=bub_...&fp=sha256:...'
 //
 // The token needs the commands and events:read scopes.
 package main

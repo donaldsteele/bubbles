@@ -5,7 +5,7 @@ info:
   summary: Self-hosted LAN chat server.
   description: |
     REST contract of the bubbles server. Everything is served over HTTPS
-    (default port 8443); JSON in, JSON out.
+    (default port 28225); JSON in, JSON out.
 
     **Authentication.** A browser session travels in the `__Host-bubbles_session`
     cookie (Secure, HttpOnly, SameSite=Strict, Path=/). Only the SHA-256 of the

@@ -30,8 +30,8 @@ func TestParseDefaults(t *testing.T) {
 	cfg := parse(t, nil, "--data-dir", dir)
 	want := Config{
 		DataDir:     dir,
-		HTTPSAddr:   ":8443",
-		HTTPAddr:    ":8080",
+		HTTPSAddr:   ":28225",
+		HTTPAddr:    ":28226",
 		MDNSName:    "bubbles",
 		TLSExtraDNS: []string{},
 	}
@@ -160,7 +160,7 @@ func TestParseErrors(t *testing.T) {
 		{"cert without key", nil, []string{"--tls-cert", "c.pem"}, "together"},
 		{"key without cert", nil, []string{"--tls-key", "k.pem"}, "together"},
 		{"cert without key from env", map[string]string{"BUBBLES_TLS_CERT": "c.pem"}, nil, "together"},
-		{"bad https addr", nil, []string{"--https-addr", "8443"}, "https-addr"},
+		{"bad https addr", nil, []string{"--https-addr", "28225"}, "https-addr"},
 		{"bad port", nil, []string{"--http-addr", ":99999"}, "http-addr"},
 		{"same addrs", nil, []string{"--https-addr", ":9000", "--http-addr", ":9000"}, "differ"},
 		{"bad mdns name", nil, []string{"--mdns-name", "my host.local"}, "mdns-name"},

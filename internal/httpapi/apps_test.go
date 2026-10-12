@@ -19,7 +19,7 @@ var testFingerprintHex = strings.Repeat("0123456789abcdef", 4)
 
 // testEndpoint is how the test server says clients reach it. The fingerprint
 // uses the grouped upper-case notation of the certificate manager.
-var testEndpoint = apps.Endpoint{Host: "192.168.1.5", Port: 8443, Fingerprint: groupHex(strings.ToUpper(testFingerprintHex))}
+var testEndpoint = apps.Endpoint{Host: "192.168.1.5", Port: 28225, Fingerprint: groupHex(strings.ToUpper(testFingerprintHex))}
 
 func groupHex(h string) string {
 	var parts []string
@@ -86,7 +86,7 @@ func TestAppsAdminCreatesAppAndToken(t *testing.T) {
 	if !strings.HasPrefix(issued.Token, "bub_") {
 		t.Fatalf("token = %q", issued.Token)
 	}
-	wantConn := "bubbles://192.168.1.5:8443/?token=" + issued.Token + "&fp=sha256:" + testFingerprintHex
+	wantConn := "bubbles://192.168.1.5:28225/?token=" + issued.Token + "&fp=sha256:" + testFingerprintHex
 	if issued.ConnectionString != wantConn {
 		t.Errorf("connection_string = %q, want %q", issued.ConnectionString, wantConn)
 	}

@@ -11,7 +11,7 @@ There are two ways to connect:
 
 | | Streamable HTTP | stdio bridge (recommended) |
 |---|---|---|
-| Endpoint | `POST https://<server>:8443/api/v1/mcp` | `bubbles mcp --conn "bubbles://…"` |
+| Endpoint | `POST https://<server>:28225/api/v1/mcp` | `bubbles mcp --conn "bubbles://…"` |
 | Runs | inside the server | on the assistant's machine, calls the REST API |
 | TLS trust | the client must trust the Bubbles CA | the bridge pins the CA by fingerprint (`fp=`); nothing to install |
 | Same tools and results | yes | yes |
@@ -36,7 +36,7 @@ Over HTTP a token without `mcp`, and any browser session, gets `403` before MCP 
    issue a token with the scopes above. Optionally restrict it to a channel allowlist.
 2. Add the app's bot to the channels it should use (channel settings → members). A bot
    that is not a member sees nothing in that channel.
-3. Copy the connection string `bubbles://host:8443/?token=bub_…&fp=sha256:…` shown once. It
+3. Copy the connection string `bubbles://host:28225/?token=bub_…&fp=sha256:…` shown once. It
    contains the token and the fingerprint of the server's CA.
 
 An app can also pair itself: the admin approves a pairing request and the app receives the
@@ -50,10 +50,10 @@ assistant (`bubbles version` to check).
 
 ```sh
 # the token is in the process arguments (visible to other local users)
-claude mcp add bubbles -- bubbles mcp --conn "bubbles://192.168.1.20:8443/?token=bub_XXXX&fp=sha256:AB12…"
+claude mcp add bubbles -- bubbles mcp --conn "bubbles://192.168.1.20:28225/?token=bub_XXXX&fp=sha256:AB12…"
 
 # better: keep the token out of the process list
-claude mcp add bubbles -e BUBBLES_CONN="bubbles://192.168.1.20:8443/?token=bub_XXXX&fp=sha256:AB12…" -- bubbles mcp
+claude mcp add bubbles -e BUBBLES_CONN="bubbles://192.168.1.20:28225/?token=bub_XXXX&fp=sha256:AB12…" -- bubbles mcp
 ```
 
 The bridge writes nothing but MCP messages to stdout; errors go to stderr and never contain
@@ -63,7 +63,7 @@ the token. It refuses a connection string without `fp=`. Exit codes: 0 ok, 1 run
 ## Streamable HTTP
 
 ```sh
-claude mcp add --transport http bubbles https://192.168.1.20:8443/api/v1/mcp \
+claude mcp add --transport http bubbles https://192.168.1.20:28225/api/v1/mcp \
   --header "Authorization: Bearer bub_XXXX"
 ```
 

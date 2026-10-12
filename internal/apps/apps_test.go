@@ -422,10 +422,10 @@ func TestAppsConnectionString(t *testing.T) {
 		e    Endpoint
 		want string
 	}{
-		{"ipv4 spaced upper-case fingerprint", Endpoint{Host: "192.168.1.5", Port: 8443, Fingerprint: spaced}, "bubbles://192.168.1.5:8443/?token=bub_x&fp=sha256:" + fp},
-		{"ipv6", Endpoint{Host: "fd00::5", Port: 8443, Fingerprint: "sha256:" + fp}, "bubbles://[fd00::5]:8443/?token=bub_x&fp=sha256:" + fp},
+		{"ipv4 spaced upper-case fingerprint", Endpoint{Host: "192.168.1.5", Port: 28225, Fingerprint: spaced}, "bubbles://192.168.1.5:28225/?token=bub_x&fp=sha256:" + fp},
+		{"ipv6", Endpoint{Host: "fd00::5", Port: 28225, Fingerprint: "sha256:" + fp}, "bubbles://[fd00::5]:28225/?token=bub_x&fp=sha256:" + fp},
 		{"colon notation", Endpoint{Host: "bubbles.local", Port: 443, Fingerprint: "AB:12:AB:12"}, "bubbles://bubbles.local:443/?token=bub_x&fp=sha256:ab12ab12"},
-		{"no fingerprint", Endpoint{Host: "10.0.0.1", Port: 8443}, "bubbles://10.0.0.1:8443/?token=bub_x"},
+		{"no fingerprint", Endpoint{Host: "10.0.0.1", Port: 28225}, "bubbles://10.0.0.1:28225/?token=bub_x"},
 	} {
 		if got := tc.e.ConnectionString("bub_x"); got != tc.want {
 			t.Errorf("%s:\n got %s\nwant %s", tc.name, got, tc.want)

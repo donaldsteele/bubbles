@@ -15,7 +15,7 @@ import (
 )
 
 // DefaultOnboardingPort is the plain-HTTP onboarding port of a server.
-const DefaultOnboardingPort = "8080"
+const DefaultOnboardingPort = "28226"
 
 // Config is what the tray keeps on disk (never a secret: the device token
 // lives in the OS keychain).
@@ -94,8 +94,8 @@ func (s ConfigStore) Save(c Config) error {
 	return nil
 }
 
-// NormalizeServerURL turns what a user typed ("192.168.1.20", "bubbles.local:8443",
-// "https://host:8443/") into a clean https base URL. Plain http is refused:
+// NormalizeServerURL turns what a user typed ("192.168.1.20", "bubbles.local:28225",
+// "https://host:28225/") into a clean https base URL. Plain http is refused:
 // the tray only talks TLS to the server.
 func NormalizeServerURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
@@ -124,7 +124,7 @@ func NormalizeServerURL(raw string) (string, error) {
 		if strings.Contains(host, ":") {
 			host = "[" + host + "]"
 		}
-		host += ":8443"
+		host += ":28225"
 	}
 	return "https://" + host, nil
 }

@@ -16,8 +16,8 @@ The manual equivalent, for administrators who prefer to see every step:
 3. Allow inbound connections from private networks only:
 
    ```
-   netsh advfirewall firewall add rule name="bubbles HTTPS" dir=in action=allow protocol=TCP localport=8443 profile=private
-   netsh advfirewall firewall add rule name="bubbles onboarding" dir=in action=allow protocol=TCP localport=8080 profile=private
+   netsh advfirewall firewall add rule name="bubbles HTTPS" dir=in action=allow protocol=TCP localport=28225 profile=private
+   netsh advfirewall firewall add rule name="bubbles onboarding" dir=in action=allow protocol=TCP localport=28226 profile=private
    ```
 
 4. Start it: `sc.exe start bubbles`.

@@ -31,8 +31,8 @@ services:
     #   BUBBLES_DATA_DIR: /data
     #   BUBBLES_NO_MDNS: "true"
     # ports:
-    #   - "8443:8443"   # HTTPS app and API
-    #   - "8080:8080"   # onboarding page (CA download, plain HTTP)
+    #   - "28225:28225"   # HTTPS app and API
+    #   - "28226:28226"   # onboarding page (CA download, plain HTTP)
 
 volumes:
   bubbles-data:

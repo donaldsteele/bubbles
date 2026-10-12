@@ -43,8 +43,8 @@ func testHandler(t *testing.T, withCA bool) http.Handler {
 			}
 			return nil
 		},
-		HTTPSPort: 8443,
-		URLs:      func() []string { return []string{"https://192.168.1.20:8443/", "https://10.0.0.5:8443/"} },
+		HTTPSPort: 28225,
+		URLs:      func() []string { return []string{"https://192.168.1.20:28225/", "https://10.0.0.5:28225/"} },
 		Hosts:     func() []string { return []string{"bubbles.local", "127.0.0.1", "::1"} },
 	})
 }
@@ -56,7 +56,7 @@ func withRemote(addr string) reqOpt { return func(r *http.Request) { r.RemoteAdd
 func withHost(host string) reqOpt   { return func(r *http.Request) { r.Host = host } }
 
 func get(h http.Handler, method, target string, opts ...reqOpt) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, "http://192.168.1.20:8080"+target, nil)
+	req := httptest.NewRequest(method, "http://192.168.1.20:28226"+target, nil)
 	req.RemoteAddr = "192.168.1.77:50000"
 	for _, o := range opts {
 		o(req)
@@ -77,9 +77,9 @@ func TestPage(t *testing.T) {
 		"Connect to Home Chat",
 		ca.Fingerprint(),
 		ca.Cert.Subject.CommonName,
-		`href="https://192.168.1.20:8443/"`,
-		`href="https://10.0.0.5:8443/"`,
-		`src="/qr.svg?u=https%3a%2f%2f192.168.1.20%3a8443%2f"`,
+		`href="https://192.168.1.20:28225/"`,
+		`href="https://10.0.0.5:28225/"`,
+		`src="/qr.svg?u=https%3a%2f%2f192.168.1.20%3a28225%2f"`,
 		`href="/onboarding.css"`,
 		"<details open>\n<summary>iPhone and iPad</summary>",
 		"<summary>Android</summary>", "<summary>Windows</summary>", "<summary>macOS</summary>",
@@ -159,12 +159,12 @@ func TestBYOModeHasNoCA(t *testing.T) {
 func TestQRCode(t *testing.T) {
 	h := testHandler(t, true)
 	for _, u := range []string{
-		"https://192.168.1.20:8443/",
-		"https://10.0.0.5:8443",
-		"https://bubbles.local:8443/",
-		"https://BUBBLES.local:8443/",
-		"https://[::1]:8443/",
-		"https://192.168.1.20:8443/invite/abc_DEF-123",
+		"https://192.168.1.20:28225/",
+		"https://10.0.0.5:28225",
+		"https://bubbles.local:28225/",
+		"https://BUBBLES.local:28225/",
+		"https://[::1]:28225/",
+		"https://192.168.1.20:28225/invite/abc_DEF-123",
 	} {
 		rec := get(h, http.MethodGet, "/qr.svg?u="+urlQuery(u))
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/svg+xml" {
@@ -177,17 +177,17 @@ func TestQRCode(t *testing.T) {
 	}
 	for _, u := range []string{
 		"",
-		"http://192.168.1.20:8443/",
-		"https://evil.example:8443/",
-		"https://8.8.8.8:8443/",
+		"http://192.168.1.20:28225/",
+		"https://evil.example:28225/",
+		"https://8.8.8.8:28225/",
 		"https://192.168.1.20:9999/",
 		"https://192.168.1.20/",
-		"https://192.168.1.20:8443/login",
-		"https://192.168.1.20:8443/?next=x",
-		"https://192.168.1.20:8443/#frag",
-		"https://user@192.168.1.20:8443/",
-		"https://192.168.1.20:8443/invite/bad%20code",
-		"https://192.168.1.20:8443/invite/" + strings.Repeat("a", 600),
+		"https://192.168.1.20:28225/login",
+		"https://192.168.1.20:28225/?next=x",
+		"https://192.168.1.20:28225/#frag",
+		"https://user@192.168.1.20:28225/",
+		"https://192.168.1.20:28225/invite/bad%20code",
+		"https://192.168.1.20:28225/invite/" + strings.Repeat("a", 600),
 		"javascript:alert(1)",
 	} {
 		if rec := get(h, http.MethodGet, "/qr.svg?u="+urlQuery(u)); rec.Code != http.StatusBadRequest {
@@ -201,8 +201,8 @@ func TestInvitePage(t *testing.T) {
 	rec := get(h, http.MethodGet, "/invite/abc_DEF-123")
 	body := rec.Body.String()
 	if rec.Code != http.StatusOK || !strings.Contains(body, "You are invited to Home Chat") ||
-		!strings.Contains(body, `href="https://192.168.1.20:8443/invite/abc_DEF-123"`) ||
-		!strings.Contains(body, `src="/qr.svg?u=https%3a%2f%2f192.168.1.20%3a8443%2finvite%2fabc_DEF-123"`) {
+		!strings.Contains(body, `href="https://192.168.1.20:28225/invite/abc_DEF-123"`) ||
+		!strings.Contains(body, `src="/qr.svg?u=https%3a%2f%2f192.168.1.20%3a28225%2finvite%2fabc_DEF-123"`) {
 		t.Errorf("invite page: status = %d", rec.Code)
 	}
 	if rec := get(h, http.MethodGet, "/invite/bad.code"); rec.Code != http.StatusNotFound {
@@ -217,13 +217,13 @@ func TestRedirectsEverythingElseToHTTPS(t *testing.T) {
 		opts         []reqOpt
 		want         string
 	}{
-		{http.MethodGet, "/api/v1/me", nil, "https://192.168.1.20:8443/api/v1/me"},
-		{http.MethodPost, "/api/v1/auth/login", nil, "https://192.168.1.20:8443/api/v1/auth/login"},
-		{http.MethodGet, "/channels/x?y=1", nil, "https://192.168.1.20:8443/channels/x?y=1"},
-		{http.MethodPost, "/ca.crt", nil, "https://192.168.1.20:8443/ca.crt"},
-		{http.MethodGet, "/healthz", []reqOpt{withHost("bubbles.local:8080")}, "https://bubbles.local:8443/healthz"},
+		{http.MethodGet, "/api/v1/me", nil, "https://192.168.1.20:28225/api/v1/me"},
+		{http.MethodPost, "/api/v1/auth/login", nil, "https://192.168.1.20:28225/api/v1/auth/login"},
+		{http.MethodGet, "/channels/x?y=1", nil, "https://192.168.1.20:28225/channels/x?y=1"},
+		{http.MethodPost, "/ca.crt", nil, "https://192.168.1.20:28225/ca.crt"},
+		{http.MethodGet, "/healthz", []reqOpt{withHost("bubbles.local:28226")}, "https://bubbles.local:28225/healthz"},
 		{http.MethodGet, "/", []reqOpt{withHost("192.168.1.20")}, ""},
-		{http.MethodGet, "/x", []reqOpt{withHost("[::1]:8080")}, "https://[::1]:8443/x"},
+		{http.MethodGet, "/x", []reqOpt{withHost("[::1]:28226")}, "https://[::1]:28225/x"},
 	}
 	for _, tt := range tests {
 		rec := get(h, tt.method, tt.path, tt.opts...)
@@ -241,18 +241,18 @@ func TestRedirectsEverythingElseToHTTPS(t *testing.T) {
 
 func TestRedirectOnlyTrustsOwnHost(t *testing.T) {
 	h := testHandler(t, true)
-	noURLs := New(Options{HTTPSPort: 8443, Hosts: func() []string { return []string{"bubbles.local"} }})
+	noURLs := New(Options{HTTPSPort: 28225, Hosts: func() []string { return []string{"bubbles.local"} }})
 	tests := []struct {
 		name, target, host string
 		handler            http.Handler
 		want               string // "" means 400: no advertised URL to fall back to
 	}{
-		{"absolute-form target to foreign host", "http://evil.com/x", "", h, "https://192.168.1.20:8443/x"},
-		{"forged Host header", "http://192.168.1.20:8080/x", "evil.com:8080", h, "https://192.168.1.20:8443/x"},
-		{"malformed Host header", "http://192.168.1.20:8080/x", "evil host", h, "https://192.168.1.20:8443/x"},
-		{"own SAN name is kept", "http://192.168.1.20:8080/x", "bubbles.local:8080", h, "https://bubbles.local:8443/x"},
-		{"own address is kept", "http://192.168.1.20:8080/x?y=1", "[::1]:8080", h, "https://[::1]:8443/x?y=1"},
-		{"foreign host with nothing advertised", "http://192.168.1.20:8080/x", "evil.com", noURLs, ""},
+		{"absolute-form target to foreign host", "http://evil.com/x", "", h, "https://192.168.1.20:28225/x"},
+		{"forged Host header", "http://192.168.1.20:28226/x", "evil.com:28226", h, "https://192.168.1.20:28225/x"},
+		{"malformed Host header", "http://192.168.1.20:28226/x", "evil host", h, "https://192.168.1.20:28225/x"},
+		{"own SAN name is kept", "http://192.168.1.20:28226/x", "bubbles.local:28226", h, "https://bubbles.local:28225/x"},
+		{"own address is kept", "http://192.168.1.20:28226/x?y=1", "[::1]:28226", h, "https://[::1]:28225/x?y=1"},
+		{"foreign host with nothing advertised", "http://192.168.1.20:28226/x", "evil.com", noURLs, ""},
 	}
 	for _, tt := range tests {
 		req := httptest.NewRequest(http.MethodGet, tt.target, nil)
@@ -280,7 +280,7 @@ func TestRedirectOnlyTrustsOwnHost(t *testing.T) {
 func TestNoCookiesAnywhere(t *testing.T) {
 	h := testHandler(t, true)
 	for _, p := range []string{"/", "/onboarding.css", "/ca.crt", "/ca.pem", "/ca.mobileconfig",
-		"/qr.svg?u=https%3A%2F%2F192.168.1.20%3A8443%2F", "/qr.svg", "/invite/abc", "/api/v1/me", "/login"} {
+		"/qr.svg?u=https%3A%2F%2F192.168.1.20%3A28225%2F", "/qr.svg", "/invite/abc", "/api/v1/me", "/login"} {
 		for _, m := range []string{http.MethodGet, http.MethodPost} {
 			rec := get(h, m, p)
 			if c := rec.Header().Values("Set-Cookie"); len(c) != 0 {
@@ -297,7 +297,7 @@ func TestGuard(t *testing.T) {
 			t.Errorf("%s from a public address: status = %d", p, rec.Code)
 		}
 	}
-	allowed := New(Options{HTTPSPort: 8443, AllowedCIDRs: func() []netip.Prefix { return []netip.Prefix{netip.MustParsePrefix("8.8.8.0/24")} }})
+	allowed := New(Options{HTTPSPort: 28225, AllowedCIDRs: func() []netip.Prefix { return []netip.Prefix{netip.MustParsePrefix("8.8.8.0/24")} }})
 	if rec := get(allowed, http.MethodGet, "/", withRemote("8.8.8.8:1234")); rec.Code != http.StatusOK {
 		t.Errorf("allowed CIDR: status = %d", rec.Code)
 	}

@@ -125,7 +125,7 @@ func TestNewWritesJSONFileAndTextConsole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	logger.Info("listening", "addr", ":8443", "token", "bub_SUPERSECRET", SecretAttr("setup", "hunter2"))
+	logger.Info("listening", "addr", ":28225", "token", "bub_SUPERSECRET", SecretAttr("setup", "hunter2"))
 	logger.Debug("hidden")
 	if err := closer.Close(); err != nil {
 		t.Fatal(err)
@@ -139,7 +139,7 @@ func TestNewWritesJSONFileAndTextConsole(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(b), &rec); err != nil {
 		t.Fatalf("log file is not one JSON line: %v (%q)", err, b)
 	}
-	if rec["msg"] != "listening" || rec["addr"] != ":8443" || rec["level"] != "INFO" {
+	if rec["msg"] != "listening" || rec["addr"] != ":28225" || rec["level"] != "INFO" {
 		t.Errorf("unexpected record %v", rec)
 	}
 	if rec["token"] != Redacted || rec["setup"] != Redacted {
@@ -153,7 +153,7 @@ func TestNewWritesJSONFileAndTextConsole(t *testing.T) {
 			t.Errorf("debug line logged at info level: %q", out)
 		}
 	}
-	if !strings.Contains(console.String(), "msg=listening") || !strings.Contains(console.String(), "addr=:8443") {
+	if !strings.Contains(console.String(), "msg=listening") || !strings.Contains(console.String(), "addr=:28225") {
 		t.Errorf("console is not slog text: %q", console.String())
 	}
 }

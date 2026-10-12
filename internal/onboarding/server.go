@@ -35,7 +35,7 @@ type Options struct {
 	// HTTPSPort is the port the HTTPS listener is bound to.
 	HTTPSPort int
 	// URLs returns this server's HTTPS base URLs, best first, for example
-	// "https://192.168.1.20:8443/".
+	// "https://192.168.1.20:28225/".
 	URLs func() []string
 	// Hosts returns the extra host names and addresses this server answers
 	// to (its certificate SANs); QR codes are only drawn for these and for

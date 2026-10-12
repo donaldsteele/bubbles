@@ -204,7 +204,7 @@ func baseURL(cfg config.Config, lan func() ([]netip.Addr, error)) string {
 			break
 		}
 	}
-	port := "8443"
+	port := "28225"
 	if _, p, err := net.SplitHostPort(cfg.HTTPSAddr); err == nil {
 		if n, err := strconv.Atoi(p); err == nil && n > 0 {
 			port = p

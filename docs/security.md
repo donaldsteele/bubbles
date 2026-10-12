@@ -42,8 +42,8 @@ Treat the server as a trusted machine that the chat members trust.
 
 ## Transport and certificates
 
-- **HTTPS everywhere.** The server listens for HTTPS (default port 8443). The
-  plain-HTTP listener (port 8080) serves only the onboarding page and CA
+- **HTTPS everywhere.** The server listens for HTTPS (default port 28225). The
+  plain-HTTP listener (port 28226) serves only the onboarding page and CA
   downloads; any other path redirects to HTTPS. No cookies, authentication or
   API run on the HTTP listener. TLS 1.2 is the minimum.
 - **Local CA.** bubbles creates an ECDSA P-256 CA with a 10-year validity, and

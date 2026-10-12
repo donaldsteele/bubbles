@@ -15,7 +15,7 @@ func TestConfigRoundTrip(t *testing.T) {
 		t.Fatalf("missing file = %+v, %v", got, err)
 	}
 	want := Config{
-		ServerURL: "https://192.168.1.20:8443", OnboardingURL: "http://192.168.1.20:8080",
+		ServerURL: "https://192.168.1.20:28225", OnboardingURL: "http://192.168.1.20:28226",
 		CAFingerprint: "sha256:ab", DeviceID: "d1", Username: "alice", DeviceName: "Laptop", PausedUntil: 42,
 	}
 	if err := s.Save(want); err != nil {
@@ -40,7 +40,7 @@ func TestConfigRoundTrip(t *testing.T) {
 }
 
 func TestConfigSignedIn(t *testing.T) {
-	c := Config{ServerURL: "https://h:8443", DeviceID: "d", CAFingerprint: "sha256:x"}
+	c := Config{ServerURL: "https://h:28225", DeviceID: "d", CAFingerprint: "sha256:x"}
 	if !c.SignedIn() {
 		t.Fatal("complete config is not signed in")
 	}
@@ -62,16 +62,16 @@ func TestNormalizeServerURL(t *testing.T) {
 		in, want string
 		bad      bool
 	}{
-		{"192.168.1.20", "https://192.168.1.20:8443", false},
-		{"bubbles.local", "https://bubbles.local:8443", false},
+		{"192.168.1.20", "https://192.168.1.20:28225", false},
+		{"bubbles.local", "https://bubbles.local:28225", false},
 		{"bubbles.local:9000", "https://bubbles.local:9000", false},
-		{" https://host:8443/ ", "https://host:8443", false},
-		{"https://[fe80::1]:8443", "https://[fe80::1]:8443", false},
-		{"[::1]", "https://[::1]:8443", false},
+		{" https://host:28225/ ", "https://host:28225", false},
+		{"https://[fe80::1]:28225", "https://[fe80::1]:28225", false},
+		{"[::1]", "https://[::1]:28225", false},
 		{"", "", true},
-		{"http://host:8443", "", true},
-		{"https://host:8443/app", "", true},
-		{"https://host:8443/?x=1", "", true},
+		{"http://host:28225", "", true},
+		{"https://host:28225/app", "", true},
+		{"https://host:28225/?x=1", "", true},
 		{"https://user:pw@host", "", true},
 		{"https://", "", true},
 		{"ftp://host", "", true},
@@ -89,10 +89,10 @@ func TestOnboardingURLFor(t *testing.T) {
 		server, port, want string
 		bad                bool
 	}{
-		{"https://192.168.1.20:8443", "", "http://192.168.1.20:8080", false},
-		{"https://bubbles.local:8443", "9090", "http://bubbles.local:9090", false},
-		{"https://[fe80::1]:8443", "", "http://[fe80::1]:8080", false},
-		{"https://h:8443", "80;rm", "", true},
+		{"https://192.168.1.20:28225", "", "http://192.168.1.20:28226", false},
+		{"https://bubbles.local:28225", "9090", "http://bubbles.local:9090", false},
+		{"https://[fe80::1]:28225", "", "http://[fe80::1]:28226", false},
+		{"https://h:28225", "80;rm", "", true},
 		{"::bad", "", "", true},
 	}
 	for _, tc := range tests {

@@ -11,7 +11,7 @@ import (
 )
 
 // DefaultPort is the HTTPS port assumed when a connection string omits it.
-const DefaultPort = "8443"
+const DefaultPort = "28225"
 
 // ParseConnectionString parses bubbles://host:port/?token=bub_...&fp=sha256:<64 hex>.
 func ParseConnectionString(s string) (Config, error) {

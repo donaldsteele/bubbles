@@ -15,7 +15,7 @@ is the reference implementation of this contract.
 netdiag-sender --conn "$BUBBLES_CONN" --channel netdiag-alerts < notices.jsonl
 
 # first run: pair interactively and keep the connection string
-netdiag-sender --pair https://192.168.1.20:8443 --onboard http://192.168.1.20:8080 \
+netdiag-sender --pair https://192.168.1.20:28225 --onboard http://192.168.1.20:28226 \
   --save ~/.netdiag-bubbles --demo
 ```
 

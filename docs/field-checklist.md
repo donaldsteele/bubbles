@@ -136,7 +136,7 @@ Notes: ______________________________________________
 - [ ] Switch the phone to the normal SSID: it connects.
 - [ ] mDNS: from the Mac, `ping bubbles.local` (or the chosen `--mdns-name`) answers with the host's address; `dns-sd -B _bubbles._tcp` (Mac)
   lists the server.
-- [ ] From the iPhone and the Mac, `https://bubbles.local:8443` opens without warnings. On Android check whether `.local` resolves;
+- [ ] From the iPhone and the Mac, `https://bubbles.local:28225` opens without warnings. On Android check whether `.local` resolves;
   if not, the numeric address works.
 - [ ] Start two servers with different `--mdns-name` values on one LAN: both are discoverable and neither takes the other's name.
 

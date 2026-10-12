@@ -78,7 +78,7 @@ func (f *fakeResetter) FactoryReset(_ context.Context, in ResetInput) (protocol.
 		return protocol.FactoryReset{}, err
 	}
 	return protocol.FactoryReset{
-		SetupToken: "newtoken", SetupURL: "https://192.168.1.20:8443/",
+		SetupToken: "newtoken", SetupURL: "https://192.168.1.20:28225/",
 		CARotated: in.RotateCA, CAFingerprint: "sha256:ab",
 	}, nil
 }

@@ -106,7 +106,7 @@ func TestWebhookAdminCreateListRevoke(t *testing.T) {
 	f := e.hookFixture()
 
 	// The URL is the server's first LAN host and port plus the secret path.
-	if !strings.HasPrefix(f.wh.URL, "https://192.168.1.5:8443/hooks/bwh_") || len(f.token) != len("bwh_")+52 {
+	if !strings.HasPrefix(f.wh.URL, "https://192.168.1.5:28225/hooks/bwh_") || len(f.token) != len("bwh_")+52 {
 		t.Fatalf("url = %q", f.wh.URL)
 	}
 	if f.wh.ChannelID != f.ops.ID || f.wh.Name != "Deploy Hook" || f.wh.CreatedBy == nil || *f.wh.CreatedBy != f.admin.id || f.wh.RevokedAt != nil {

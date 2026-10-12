@@ -14,10 +14,10 @@ func TestParseConnectionString(t *testing.T) {
 		want Config
 		bad  bool
 	}{
-		{"full", "bubbles://192.168.1.20:8443/?token=bub_abc&fp=sha256:" + goodFP,
-			Config{BaseURL: "https://192.168.1.20:8443", Token: "bub_abc", CAFingerprint: "sha256:" + goodFP}, false},
+		{"full", "bubbles://192.168.1.20:28225/?token=bub_abc&fp=sha256:" + goodFP,
+			Config{BaseURL: "https://192.168.1.20:28225", Token: "bub_abc", CAFingerprint: "sha256:" + goodFP}, false},
 		{"default port, upper fp", "bubbles://bubbles.local/?token=t&fp=sha256:" + strings.ToUpper(goodFP),
-			Config{BaseURL: "https://bubbles.local:8443", Token: "t", CAFingerprint: "sha256:" + goodFP}, false},
+			Config{BaseURL: "https://bubbles.local:28225", Token: "t", CAFingerprint: "sha256:" + goodFP}, false},
 		{"ipv6", "bubbles://[fd00::1]:9000/?token=t&fp=" + goodFP,
 			Config{BaseURL: "https://[fd00::1]:9000", Token: "t", CAFingerprint: "sha256:" + goodFP}, false},
 		{"wrong scheme", "https://h/?token=t&fp=" + goodFP, Config{}, true},
@@ -46,7 +46,7 @@ func TestParseConnectionString(t *testing.T) {
 }
 
 func TestConnectionStringRoundTrip(t *testing.T) {
-	cfg := Config{BaseURL: "https://10.0.0.5:8443", Token: "bub_x y", CAFingerprint: goodFP}
+	cfg := Config{BaseURL: "https://10.0.0.5:28225", Token: "bub_x y", CAFingerprint: goodFP}
 	s, err := cfg.ConnectionString()
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestFormatFingerprint(t *testing.T) {
 }
 
 func FuzzParseConnectionString(f *testing.F) {
-	f.Add("bubbles://192.168.1.20:8443/?token=bub_abc&fp=sha256:" + goodFP)
+	f.Add("bubbles://192.168.1.20:28225/?token=bub_abc&fp=sha256:" + goodFP)
 	f.Add("bubbles://[fd00::1]/?token=t&fp=" + goodFP)
 	f.Add("bubbles://h")
 	f.Add("")

@@ -256,7 +256,7 @@ func TestUpgradeRefusals(t *testing.T) {
 		status int
 	}{
 		{"cross-site origin", tok, "http://evil.example", "", http.StatusForbidden},
-		{"https origin for other host", tok, "https://bubbles.local:8443", "", http.StatusForbidden},
+		{"https origin for other host", tok, "https://bubbles.local:28225", "", http.StatusForbidden},
 		{"no origin", tok, "", "", http.StatusForbidden},
 		{"not signed in", "", e.origin(), "", http.StatusUnauthorized},
 		{"bad resume", tok, e.origin(), "resume=-1", http.StatusBadRequest},

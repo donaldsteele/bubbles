@@ -11,7 +11,7 @@ Run it
   Linux     Unzip, then run ./bubbles from a terminal.
 
 The first start prints a one-time setup token and the addresses to open
-(for example https://192.168.1.20:8443 and https://bubbles.local:8443).
+(for example https://192.168.1.20:28225 and https://bubbles.local:28225).
 Keep that console window open while people use the chat.
 
 Unsigned binaries: the release is not code-signed. The operating system will

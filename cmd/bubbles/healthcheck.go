@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	defaultHealthURL = "https://127.0.0.1:8443"
-	healthUsage      = "usage: bubbles healthcheck [--url https://127.0.0.1:8443] [--data-dir D]"
+	defaultHealthURL = "https://127.0.0.1:28225"
+	healthUsage      = "usage: bubbles healthcheck [--url https://127.0.0.1:28225] [--data-dir D]"
 )
 
 func runHealthcheck(args []string) int {

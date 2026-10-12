@@ -29,7 +29,7 @@ const (
 
 // Config configures a Client.
 type Config struct {
-	// BaseURL is the server root, for example https://192.168.1.20:8443.
+	// BaseURL is the server root, for example https://192.168.1.20:28225.
 	BaseURL string
 	// Token is the app token (bub_...).
 	Token string

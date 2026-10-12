@@ -34,7 +34,7 @@ func TestServePrintConfigDoesNotTouchDataDir(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatalf("stdout is not JSON: %v (%q)", err, stdout)
 	}
-	if got.DataDir != dir || got.MDNSName != "chat" || got.HTTPSAddr != ":8443" || got.HTTPAddr != ":8080" {
+	if got.DataDir != dir || got.MDNSName != "chat" || got.HTTPSAddr != ":28225" || got.HTTPAddr != ":28226" {
 		t.Errorf("unexpected config %+v", got)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {

@@ -161,7 +161,7 @@ func TestAdminResetPassword(t *testing.T) {
 	// Flags may follow the username; the lookup is case-insensitive.
 	code, stdout, stderr := runAdminTest(t, nil, "reset-password", "ALICE", "--data-dir", dir)
 	m := urlCode.FindStringSubmatch(stdout)
-	if code != exitOK || m == nil || m[2] != "reset" || m[1] != "8443" {
+	if code != exitOK || m == nil || m[2] != "reset" || m[1] != "28225" {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 	}
 	if err := svc.ResetPassword(ctx, m[3], "a brand new passphrase", ""); err != nil {

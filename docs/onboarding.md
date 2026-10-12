@@ -14,7 +14,7 @@ addresses), and the CA certificate can be downloaded from the server itself.
 1. Start the server on a computer on the network and keep its console open.
    It prints the addresses to use and the SHA-256 fingerprint of the CA.
 2. On a device, open the **onboarding page** on the server's plain-HTTP port,
-   for example `http://192.168.1.20:8080` (or `http://bubbles.local:8080`).
+   for example `http://192.168.1.20:28226` (or `http://bubbles.local:28226`).
    The page only serves the CA certificate and instructions. Every other path
    redirects to HTTPS.
 3. The page shows the instance name, the HTTPS URL, a QR code, and the CA
@@ -61,7 +61,7 @@ the certificate.
 3. Choose `bubbles-ca.crt` from Downloads and confirm.
 
 Some Android Chrome builds cannot resolve `.local` names. Use the numeric
-address from the onboarding page (for example `https://192.168.1.20:8443`) or
+address from the onboarding page (for example `https://192.168.1.20:28225`) or
 scan the QR code, which uses the IP address.
 
 ### Windows
@@ -139,7 +139,7 @@ on iOS, or the browser's install option on Android, Windows, macOS and Linux.
   no other device has connected within ten minutes of setup.
 - **`.local` does not resolve.** Some networks block multicast DNS, and some
   Android browsers cannot resolve `.local`. Use the numeric address instead
-  (for example `https://192.168.1.20:8443`). The QR code always uses the IP
+  (for example `https://192.168.1.20:28225`). The QR code always uses the IP
   address.
 - **Certificate warning on the page.** The CA is not trusted on this device yet,
   or the trust step was skipped (iOS Certificate Trust Settings, Firefox import).

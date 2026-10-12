@@ -49,8 +49,8 @@ func serviceCmd(ctx context.Context, args []string, opts config.Options, mgr ser
 	fs := flag.NewFlagSet("bubbles service "+sub, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	dataDir := fs.String("data-dir", "", "service data directory (env "+config.EnvName("data-dir")+")")
-	httpsAddr := fs.String("https-addr", "", "HTTPS listen address passed to the service (default :8443)")
-	httpAddr := fs.String("http-addr", "", "onboarding HTTP listen address passed to the service (default :8080)")
+	httpsAddr := fs.String("https-addr", "", "HTTPS listen address passed to the service (default :28225)")
+	httpAddr := fs.String("http-addr", "", "onboarding HTTP listen address passed to the service (default :28226)")
 	if code, done := parseSub(fs, "service "+sub, rest, stderr, serviceUsage); done {
 		return code
 	}

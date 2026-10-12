@@ -41,7 +41,7 @@ COPY --from=build /out/bubbles /bubbles
 COPY --from=build --chown=65532:65532 /out/data /data
 ENV BUBBLES_DATA_DIR=/data
 VOLUME /data
-EXPOSE 8443 8080
+EXPOSE 28225 28226
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD ["/bubbles", "healthcheck"]
 USER nonroot
