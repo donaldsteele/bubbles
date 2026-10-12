@@ -1,10 +1,12 @@
 <script lang="ts">
   import { ExternalLink, MessageSquare } from '@lucide/svelte';
   import { ackAlert, resolveAlert } from '../../lib/alerts/actions';
+  import { alertText } from '../../lib/alerts/text';
   import type { Message } from '../../lib/api/types';
   import { fmt, t } from '../../lib/i18n/en';
   import { relTime } from '../../lib/messages/time';
   import { users } from '../../lib/state/users.svelte';
+  import Markdown from '../messages/Markdown.svelte';
 
   interface Props {
     message: Message;
@@ -21,6 +23,8 @@
     level === 'warning' ? 'triangle' : level === 'critical' ? 'diamond' : 'circle',
   );
   const word = $derived(t.rich.alertSeverity[level]);
+  // The body repeats the title, fields and link shown below; keep its text.
+  const text = $derived(alertText(message.body));
 
   const stateText = $derived.by(() => {
     if (!alert) return '';
@@ -84,8 +88,8 @@
       <span class="state chip">{stateText}</span>
     </header>
 
-    {#if message.body}
-      <p class="text">{message.body}</p>
+    {#if text}
+      <div class="text"><Markdown source={text} /></div>
     {/if}
 
     {#if alert.fields.length > 0}
@@ -184,7 +188,6 @@
   }
   .text {
     margin: var(--s2) 0 0;
-    white-space: pre-wrap;
   }
   .fields {
     display: grid;
