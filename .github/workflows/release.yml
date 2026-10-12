@@ -93,7 +93,7 @@ jobs:
           count="$(ls dist/*.zip | wc -l | tr -d ' ')"
           test "$count" -eq 6 || { echo "expected 6 zips, found $count"; exit 1; }
           test -f dist/SHA256SUMS
-          sha256sum --check --quiet dist/SHA256SUMS
+          (cd dist && sha256sum --check --quiet SHA256SUMS)
 
       - name: upload server artifacts
         uses: actions/upload-artifact@v7
