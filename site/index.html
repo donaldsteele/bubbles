@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bubbles · secure chat for your local network</title>
+<meta name="description" content="bubbles is a self-hosted chat server for a local network: channels, DMs, threads, emoji, files and photos over HTTPS from a built-in certificate authority. netdiag and your own tools post alerts everyone sees. One binary, no internet, no cloud account.">
+<meta name="color-scheme" content="dark light">
+<meta property="og:title" content="bubbles: secure chat for your local network">
+<meta property="og:description" content="Channels, DMs, files and alerts for everyone on the LAN, from one server binary. No internet, no cloud account, HTTPS with a built-in CA.">
+<meta property="og:image" content="https://donaldsteele.github.io/bubbles/assets/shots/channel-dark.png">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+<script>
+  // Apply the saved theme before first paint; no saved choice follows the system.
+  try { var t = localStorage.getItem('bubbles-site-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="#top" aria-label="bubbles home"><img class="logo" src="assets/favicon.svg" alt="" width="28" height="28">bubbles</a>
+    <nav aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#alerts">Alerts</a>
+      <a href="#integrations">Integrations</a>
+      <a href="#security">Security</a>
+      <a href="#reset">Reset</a>
+      <a href="#download" class="persist">Download</a>
+      <a href="https://github.com/donaldsteele/bubbles" class="persist">GitHub</a>
+    </nav>
+    <button type="button" class="themebtn" id="themebtn" aria-label="Switch to light theme">
+      <svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-sun"></use></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top">
+    <div class="orbs" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+    <div class="wrap narrow">
+      <p class="pill"><span class="pulse" aria-hidden="true"></span> Open source · Windows, macOS, Linux &amp; Docker · one binary</p>
+      <h1>Chat for everyone on <em>your&nbsp;network</em>.</h1>
+      <p class="capability">Channels, DMs, files and alerts for the whole LAN, from one server and no internet connection.</p>
+      <p class="lede">Run bubbles on any computer that stays on. Phones, laptops and desktops join in the browser over HTTPS, signed by a certificate authority bubbles creates for you. netdiag and your own scripts post alerts that everyone sees.</p>
+      <div class="cta">
+        <a class="button primary" href="#download"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-download"></use></svg>Download</a>
+        <a class="button ghost" href="https://github.com/donaldsteele/bubbles">View on GitHub<svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-external-link"></use></svg></a>
+      </div>
+      <p class="micro">Free · Apache-2.0 · Works offline · No cloud account · Invite-only</p>
+    </div>
+    <figure class="shot hero-shot">
+      <div class="window">
+        <div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">https://bubbles.local:28225 · #lan-party</span></div>
+        <button type="button" class="zoom" aria-label="Enlarge screenshot: a channel">
+          <img class="t-dark" src="assets/shots/channel-dark.png" width="2560" height="1600" alt="A busy bubbles channel in the dark theme: messages from several people, reactions, a code block and a thread">
+          <img class="t-light" src="assets/shots/channel-light.png" width="2560" height="1600" alt="The same channel in the light theme" loading="lazy">
+        </button>
+      </div>
+    </figure>
+  </section>
+
+  <section class="stats" aria-label="At a glance">
+    <div class="wrap grid4">
+      <div class="stat"><b>1 file</b><span>server for Windows, macOS, Linux and Pi</span></div>
+      <div class="stat"><b>~200</b><span>people on one server</span></div>
+      <div class="stat"><b>2.2 ms</b><span>p95 delivery to 200 clients in load tests</span></div>
+      <div class="stat"><b>0</b><span>cloud accounts or internet needed</span></div>
+    </div>
+  </section>
+
+  <section class="band" id="features">
+    <div class="wrap">
+      <p class="eyebrow">What it does</p>
+      <h2>Everything you expect from a modern chat app.</h2>
+      <p class="sub">Without an account on someone else's server: messages, files and people all live on one computer on your network.</p>
+      <div class="cards">
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-hash"></use></svg><h3>Channels and DMs</h3><p>Public and private channels, direct messages and group DMs. Presence, typing, unread counts and drafts that follow you between devices.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-reply"></use></svg><h3>Threads, reactions, pins</h3><p>Reply in a thread without derailing the channel, react with any emoji, pin what everyone needs, and edit or delete your own messages.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-face-slightly-smiling"></use></svg><h3>Emoji and mentions</h3><p>A full emoji picker plus autocomplete for <code>:emoji:</code>, <code>@people</code> and <code>#channels</code>. <code>@channel</code> and <code>@here</code> reach everyone.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-file-image"></use></svg><h3>Files and photos</h3><p>Upload by button, drag and drop or paste. Images, video and audio show inline, and GPS location is stripped from photos.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-search"></use></svg><h3>Search</h3><p>Full-text search across the channels and DMs you can see, narrowed with <code>from:</code>, <code>in:</code> and <code>has:image</code>.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-smartphone"></use></svg><h3>Phones and desktops</h3><p>An installable web app for phones and computers, opt-in push notifications, and a desktop tray app for Windows, macOS and Linux.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-qr-code"></use></svg><h3>Invite by QR code</h3><p>No open sign-up. The admin makes an invite with a role, people scan the QR code with their phone, pick a name and they are in.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-shield-check"></use></svg><h3>Admin tools</h3><p>Settings, roles, an audit log, encrypted backups, certificate management and a reset for starting over.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="band alerts-band" id="alerts">
+    <div class="wrap">
+      <p class="eyebrow">Alerts</p>
+      <h2>When the network breaks, everyone hears about it.</h2>
+      <p class="sub">bubbles is the companion to <a href="https://donaldsteele.github.io/netdiag/">netdiag</a>. When netdiag sees a printer drop off, an IP conflict or a new device, it posts an <b>alert</b>, and the whole LAN sees it in one channel. Any other tool can do the same.</p>
+
+      <ol class="timeline" aria-label="An example alert, from detection to all-clear">
+        <li class="tick warmup"><span class="t">detect</span><b>netdiag notices</b><span>The Brother printer at 192.168.1.50 stops answering.</span></li>
+        <li class="tick hot"><span class="t">post</span><b>Critical alert</b><span>It lands in #netdiag-alerts, with a push notification for anyone who opted in.</span></li>
+        <li class="tick"><span class="t">acknowledge</span><b>Someone is on it</b><span>One click shows who took it, so nobody else walks over to the printer.</span></li>
+        <li class="tick ok"><span class="t">resolve</span><b>All clear</b><span>netdiag sends the all-clear and the same alert updates in place.</span></li>
+      </ol>
+
+      <div class="gallery">
+        <figure class="shot live-shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">#netdiag-alerts</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: the alerts channel">
+            <img class="t-dark" src="assets/shots/alerts-channel-dark.png" width="2560" height="1600" loading="lazy" alt="The #netdiag-alerts channel with critical, warning and info alerts from netdiag">
+            <img class="t-light" src="assets/shots/alerts-channel-light.png" width="2560" height="1600" loading="lazy" alt="The #netdiag-alerts channel in the light theme">
+          </button></div>
+          <figcaption><b>The alerts channel.</b> Severity, the device and its address on every alert.</figcaption></figure>
+        <figure class="shot live-shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Alerts</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: the alerts view"><img src="assets/shots/alerts-view-dark.png" width="2560" height="1600" loading="lazy" alt="The Alerts view: a critical printer-offline alert and a toner-low warning, both open, with Acknowledge and Resolve buttons"></button></div>
+          <figcaption><b>The alerts view.</b> Open alerts with Acknowledge and Resolve; acknowledged and resolved ones have their own tabs.</figcaption></figure>
+      </div>
+
+      <div class="livegrid">
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-bell-ring"></use></svg><h3>Three severities</h3><p><b>info</b>, <b>warning</b> and <b>critical</b>. Each person chooses which levels notify them, per channel.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-check-check"></use></svg><h3>One alert, not fifty</h3><p>A repeat with the same dedupe key updates the existing alert instead of flooding the channel. Optional re-notify for anything left open.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-users"></use></svg><h3>Acknowledge and resolve</h3><p>People acknowledge in the app; the sender resolves when the problem clears. Each app can only touch its own alerts.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-wifi-off"></use></svg><h3>Survives restarts</h3><p>The Go SDK queues alerts and retries through server restarts and rate limits, so a flapping network does not lose the message.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="tour">
+    <div class="wrap">
+      <p class="eyebrow">A tour</p>
+      <h2>Real screens from the app.</h2>
+      <p class="sub">Captured from a running server by the same browser test harness that checks bubbles' layout and accessibility.</p>
+
+      <div class="feature">
+        <div class="copy">
+          <p class="reading-label">Threads</p>
+          <h3>Side conversations stay on the side.</h3>
+          <p>Open a thread from any message and reply there. The channel shows one reply count instead of the whole back-and-forth.</p>
+          <ul class="readings"><li>replies</li><li>reactions</li><li>pins</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">#lan-party · thread</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: thread panel"><img src="assets/shots/thread-dark.png" width="2560" height="1600" loading="lazy" alt="A channel with the thread panel open beside it, showing several replies"></button></div></figure>
+      </div>
+
+      <div class="feature flip">
+        <div class="copy">
+          <p class="reading-label">Emoji</p>
+          <h3>Every emoji, no third-party code.</h3>
+          <p>The picker is built into bubbles and works offline, with search, categories and skin tones. Type <code>:</code> in the composer for quick autocomplete.</p>
+          <ul class="readings"><li>:pizza:</li><li>:tada:</li><li>skin tones</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Emoji picker</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: emoji picker"><img src="assets/shots/emoji-dark.png" width="2560" height="1600" loading="lazy" alt="The emoji picker open above the message composer"></button></div></figure>
+      </div>
+
+      <div class="feature">
+        <div class="copy">
+          <p class="reading-label">Files and photos</p>
+          <h3>Drop a screenshot, it shows up inline.</h3>
+          <p>Paste or drag images, video, audio and documents into any channel or DM. Pictures open full size, and location data is removed from JPEG, PNG and WebP before anyone else sees them.</p>
+          <ul class="readings"><li>drag &amp; drop</li><li>paste</li><li class="r-ok">GPS stripped</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Direct message</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: direct message with an image"><img src="assets/shots/dm-image-light.png" width="2560" height="1600" loading="lazy" alt="A direct message in the light theme with a shared netdiag screenshot shown inline"></button></div></figure>
+      </div>
+
+      <div class="feature flip">
+        <div class="copy">
+          <p class="reading-label">Search</p>
+          <h3>Find it again.</h3>
+          <p>Full-text search across everything you can see. Narrow it down with <code>from:</code>, <code>in:#channel</code> and <code>has:file</code>, <code>has:image</code> or <code>has:link</code>, then jump straight to the message.</p>
+          <ul class="readings"><li>from:</li><li>in:</li><li>has:</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Search</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: search results"><img src="assets/shots/search-dark.png" width="2560" height="1600" loading="lazy" alt="Search results for printer across several channels"></button></div></figure>
+      </div>
+
+      <div class="phones-feature">
+        <div class="copy">
+          <p class="reading-label">On the phone</p>
+          <h3>Built for the phone in your pocket.</h3>
+          <p>The same app on a phone, laid out for one hand. Add it to the home screen to install it, and turn on push notifications if you want alerts while it is closed.</p>
+          <ul class="readings"><li>installable</li><li>push (opt-in)</li><li>light &amp; dark</li></ul>
+        </div>
+        <div class="phones">
+          <figure class="shot"><div class="window">
+            <button type="button" class="zoom" aria-label="Enlarge screenshot: a channel on a phone"><img src="assets/shots/phone-channel-dark.png" width="1170" height="2532" loading="lazy" alt="A channel on a phone in the dark theme"></button></div></figure>
+          <figure class="shot"><div class="window">
+            <button type="button" class="zoom" aria-label="Enlarge screenshot: alerts on a phone"><img src="assets/shots/phone-alerts-light.png" width="1170" height="2532" loading="lazy" alt="The alerts channel on a phone in the light theme"></button></div></figure>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="copy">
+          <p class="reading-label">Invites</p>
+          <h3>Scan to join.</h3>
+          <p>The admin creates an invite with a role and an expiry. bubbles shows a link and a QR code, drawn in the browser so the secret never travels in a request URL. Point a phone camera at it and pick a name.</p>
+          <ul class="readings"><li>member or admin</li><li>expires</li><li>single or multi-use</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Administration · Invites</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: invite with QR code"><img src="assets/shots/invite-dark.png" width="2560" height="1600" loading="lazy" alt="An admin invite with its link and QR code"></button></div></figure>
+      </div>
+
+      <div class="feature flip">
+        <div class="copy">
+          <p class="reading-label">Administration</p>
+          <h3>See who is on, at a glance.</h3>
+          <p>People, open connections, storage and free disk space, and the addresses to share, each with a QR code. Settings, roles, apps, webhooks, the audit log and encrypted backups are one click away.</p>
+          <ul class="readings"><li>audit log</li><li>backups</li><li>certificates</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Administration · Overview</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: admin overview"><img src="assets/shots/admin-overview-dark.png" width="2560" height="1600" loading="lazy" alt="The admin overview with connection and storage figures"></button></div></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="band integrations" id="integrations">
+    <div class="wrap">
+      <p class="eyebrow">Integrations</p>
+      <h2>Anything that can call a URL can talk to the LAN.</h2>
+      <p class="sub">Four ways in, from a one-line <code>curl</code> to a full two-way bot. Every app gets its own token with only the scopes it needs, and each can be revoked on its own.</p>
+
+      <div class="cards">
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-webhook"></use></svg><h3>Incoming webhooks</h3><p>A URL per channel. Native JSON alerts, or point anything that posts to Slack at it: <code>text</code>, attachments and blocks work.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-plug"></use></svg><h3>REST API and events</h3><p>Messages, alerts, files and slash commands with a scoped app token, plus a realtime WebSocket event stream for two-way bots.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-radar"></use></svg><h3>Go SDK</h3><p><code>pkg/bubblesclient</code> finds the server over mDNS, pairs with admin approval and pins the CA. The alert queue retries for you.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-bot"></use></svg><h3>MCP for AI agents</h3><p>Claude and other agents can read channels, search, post messages and raise or resolve alerts through eight MCP tools.</p></article>
+      </div>
+
+      <div class="split" style="margin-top:40px">
+        <div>
+          <div class="term">
+            <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Terminal · post an alert</span></div>
+            <div class="cmd"><code><span class="prompt">$</span> curl --cacert bubbles-ca.pem https://192.168.1.20:28225/hooks/bwh_XXXX \
+  -H 'Content-Type: application/json' \
+  -d '{"alert": {"severity": "warning", "title": "Backup is late",
+       "text": "Last success 3 days ago", "dedupe_key": "backup:nas"}}'</code></div>
+            <div class="out"><code><span class="ok">ok</span></code></div>
+            <div class="cmd"><code><span class="prompt">$</span> claude mcp add bubbles -e BUBBLES_CONN="bubbles://192.168.1.20:28225/?token=bub_XXXX&amp;fp=sha256:AB12…" -- bubbles mcp</code></div>
+            <div class="out ask"><code><span class="you">&gt;</span> Summarise what happened in #netdiag-alerts today and resolve anything that has cleared.</code></div>
+          </div>
+          <p class="note">Webhook posts never mention anyone, and every app is rate limited. Full reference: <a href="https://github.com/donaldsteele/bubbles/blob/main/docs/integrations.md">integrations</a>, <a href="https://github.com/donaldsteele/bubbles/blob/main/docs/mcp.md">MCP</a> and <a href="https://github.com/donaldsteele/bubbles/blob/main/docs/openapi.yaml">OpenAPI</a>.</p>
+        </div>
+        <div>
+          <h3 class="minor">MCP tools</h3>
+          <ul class="plays">
+            <li><code>list_channels</code> Channels the token can see</li>
+            <li><code>read_messages</code> Recent messages in a channel</li>
+            <li><code>search_messages</code> Full-text search</li>
+            <li><code>post_message</code> Say something</li>
+            <li><code>post_alert</code> Raise or update an alert</li>
+            <li><code>ack_alert</code> Acknowledge it</li>
+            <li><code>resolve_alert</code> Clear it</li>
+            <li><code>list_alerts</code> What is still open</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="security">
+    <div class="wrap">
+      <p class="eyebrow">Security</p>
+      <h2>Real HTTPS on a network with no internet.</h2>
+      <p class="sub">Browsers only give a web app notifications, offline mode and camera access over HTTPS. bubbles makes that work on a LAN without a public domain or a cloud service.</p>
+      <div class="secgrid">
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">http://192.168.1.20:28226 · onboarding</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: onboarding page"><img src="assets/shots/onboarding-light.png" width="2560" height="1600" loading="lazy" alt="The onboarding page for Basement LAN: download the local certificate authority, check its fingerprint, and follow the steps for your device"></button></div>
+          <figcaption><b>Onboarding.</b> Each device installs the local CA once, with steps for iPhone, Android, Windows, macOS and Linux.</figcaption></figure>
+        <ul class="safety">
+          <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-key-round"></use></svg><span><b>Its own certificate authority.</b> bubbles creates an ECDSA P-256 CA on first start and issues the server certificate for its IP addresses and <code>bubbles.local</code>.</span></li>
+          <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-lock"></use></svg><span><b>Accounts by invite only.</b> argon2id passwords, login lockout, secure cookies and a setup token printed only on the server console.</span></li>
+          <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-shield-check"></use></svg><span><b>Locked-down web app.</b> A strict Content Security Policy, origin checks, rate limits, and no scripts, fonts or images from anywhere else.</span></li>
+          <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-eye-off"></use></svg><span><b>Privacy by default.</b> Photo location data is removed, push notifications carry no message text by default, and the server refuses clients from outside private address ranges.</span></li>
+          <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-archive"></use></svg><span><b>Encrypted backups.</b> One command writes an age-encrypted archive; restore it on any host.</span></li>
+        </ul>
+      </div>
+      <p class="honest"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-message-circle"></use></svg><span><b>What it does not do:</b> there is no end-to-end encryption. Whoever runs the server can read the messages on it. The full threat model is in <a href="https://github.com/donaldsteele/bubbles/blob/main/docs/security.md">docs/security.md</a>.</span></p>
+    </div>
+  </section>
+
+  <section class="band" id="reset">
+    <div class="wrap">
+      <p class="eyebrow">Reset</p>
+      <h2>Pack up after the LAN party.</h2>
+      <p class="sub">bubbles travels. Bring it to a LAN party, a workshop or an event, then wipe it clean for the next one, from the admin Danger zone or the console.</p>
+      <div class="duo">
+        <div class="plan">
+          <h3><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-rotate-ccw"></use></svg>Clear content</h3>
+          <span class="cli">bubbles reset --content</span>
+          <ul>
+            <li class="gone"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-trash"></use></svg>Every message, thread, reaction and pin</li>
+            <li class="gone"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-trash"></use></svg>All files, pictures and alerts</li>
+            <li class="keep"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>People, channels, apps and settings</li>
+            <li class="keep"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>Everyone stays signed in</li>
+          </ul>
+          <p>Same crew, fresh start: the next session begins with empty channels.</p>
+        </div>
+        <div class="plan hot">
+          <h3><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-trash"></use></svg>Factory reset</h3>
+          <span class="cli">bubbles reset --factory</span>
+          <ul>
+            <li class="gone"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-trash"></use></svg>All users, channels, DMs, messages and files</li>
+            <li class="gone"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-trash"></use></svg>Sessions, tokens, apps, webhooks, invites, logs</li>
+            <li class="keep"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>The CA, so trusted devices stay trusted (or rotate it)</li>
+            <li class="keep"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>Server settings, if you choose to keep them</li>
+          </ul>
+          <p>Back to the setup wizard with a new setup token, as if just installed.</p>
+        </div>
+      </div>
+      <div class="feature slim">
+        <div class="copy">
+          <p class="reading-label">Danger zone</p>
+          <h3>Hard to do by accident.</h3>
+          <p>Both resets need the admin password and the instance name typed exactly, show a preview of what will go, and can save an encrypted backup first. Web resets are limited to three tries an hour and written to the audit log; admins can turn them off and keep reset console-only.</p>
+          <ul class="readings"><li class="r-warn">typed confirmation</li><li>audited</li><li>console always works</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Administration · Danger zone</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: danger zone"><img src="assets/shots/reset-dark.png" width="2560" height="1600" loading="lazy" alt="The admin Danger zone with Delete all content and Delete everything actions"></button></div></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="download">
+    <div class="wrap">
+      <p class="eyebrow">Download</p>
+      <h2>Unzip it, run it, scan the QR code.</h2>
+      <p class="sub">One server binary per platform, no installer and no runtime to add. First time? <code>HOW-TO-OPEN.txt</code> in the zip covers the SmartScreen (Windows) and Gatekeeper (macOS) warnings for unsigned programs.</p>
+      <div class="dl three">
+        <div class="plat">
+          <h3><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-server"></use></svg>Server</h3>
+          <a class="button primary" href="https://github.com/donaldsteele/bubbles/releases">Windows, macOS, Linux</a>
+          <ul><li>amd64 and arm64</li><li>Linux arm64 runs on a Raspberry Pi</li><li>Checksums in <code>SHA256SUMS</code></li></ul>
+        </div>
+        <div class="plat">
+          <h3><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-container"></use></svg>Docker</h3>
+          <div class="term inline"><div class="cmd"><code><span class="prompt">$</span> docker run -d --network host -v bubbles-data:/data ghcr.io/donaldsteele/bubbles</code></div></div>
+          <p>Multi-arch, distroless, runs as non-root. Host networking keeps <code>bubbles.local</code> working.</p>
+        </div>
+        <div class="plat">
+          <h3><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-monitor"></use></svg>Tray app</h3>
+          <a class="button ghost" href="https://github.com/donaldsteele/bubbles/releases">Windows, macOS, Linux</a>
+          <p>Optional desktop companion: sign in once, get notifications and open bubbles from the tray.</p>
+        </div>
+      </div>
+      <ol class="steps">
+        <li><b>Run bubbles</b> on a computer that stays on. The console prints a setup token and the address to open.</li>
+        <li><b>Open the address</b> on that computer, enter the token and create the admin account.</li>
+        <li><b>Invite everyone.</b> Phones open the onboarding page, trust the CA once, then scan the invite QR code.</li>
+      </ol>
+      <p class="sub small">Default ports: <code>28225</code> for the app (BUBBL on a phone keypad) and <code>28226</code> for onboarding, picked to stay clear of other servers and games. All releases: <a href="https://github.com/donaldsteele/bubbles/releases">github.com/donaldsteele/bubbles/releases</a> · Build from source: <code>bash scripts/build.sh</code> · Guides: <a href="https://github.com/donaldsteele/bubbles/blob/main/docs/onboarding.md">onboarding</a>, <a href="https://github.com/donaldsteele/bubbles/blob/main/docs/admin.md">admin</a></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="wordmark small"><img class="logo" src="assets/favicon.svg" alt="" width="24" height="24">bubbles</span>
+    <span class="fine">Apache-2.0. A companion to <a href="https://donaldsteele.github.io/netdiag/">netdiag</a>. Fonts: Inter and JetBrains Mono (SIL OFL). Icons: Lucide (ISC).</span>
+    <nav aria-label="Footer"><a href="https://github.com/donaldsteele/bubbles">GitHub</a><a href="https://github.com/donaldsteele/bubbles/releases">Releases</a><a href="https://github.com/donaldsteele/bubbles/tree/main/docs">Docs</a><a href="https://donaldsteele.github.io/netdiag/">netdiag</a></nav>
+  </div>
+</footer>
+
+<dialog id="lightbox" aria-label="Screenshot">
+  <form method="dialog"><button class="close" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-x"></use></svg></button></form>
+  <img alt="">
+</dialog>
+
+<script src="assets/site.js"></script>
+</body>
+</html>
