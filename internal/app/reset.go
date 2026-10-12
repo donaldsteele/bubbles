@@ -220,7 +220,8 @@ func (r *resetAPI) FactoryReset(ctx context.Context, in httpapi.ResetInput) (pro
 
 func (r *resetAPI) Backup(ctx context.Context, w io.Writer, passphrase string) error {
 	return backup.Create(ctx, r.app.cfg.DataDir, w, backup.CreateOptions{
-		Passphrase: passphrase, Now: r.app.opts.Now, Version: buildinfo.Version,
+		Passphrase: passphrase, WorkFactor: r.app.opts.BackupWorkFactor,
+		Now: r.app.opts.Now, Version: buildinfo.Version,
 	})
 }
 

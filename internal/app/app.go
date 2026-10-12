@@ -69,6 +69,9 @@ type Options struct {
 	// AuthParams are the argon2id parameters for new password hashes; the
 	// zero value means auth.DefaultParams (tests pass cheap ones).
 	AuthParams auth.Params
+	// BackupWorkFactor is the scrypt work factor (log2 N) for admin backups;
+	// 0 means age's default (tests pass a cheap one).
+	BackupWorkFactor int
 	// LogFiles is the writer behind the server log; a factory reset wipes
 	// the log directory through it. Nil: the directory is wiped directly.
 	LogFiles LogFiles

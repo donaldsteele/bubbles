@@ -41,7 +41,11 @@ const (
 
 func startCheap(t *testing.T, cfg config.Config) *harness {
 	t.Helper()
-	return startWith(t, cfg, func(o *Options) { o.AuthParams = cheapParams })
+	return startWith(t, cfg, func(o *Options) {
+		o.AuthParams = cheapParams
+		// age's default scrypt cost takes over 10 s under the race detector.
+		o.BackupWorkFactor = 10
+	})
 }
 
 // currentDB reads the App's database under the lifecycle lock (a factory
