@@ -285,7 +285,9 @@ func TestRollbackPublishesNothing(t *testing.T) {
 func TestPublishOrderMatchesSeqUnderConcurrentWriters(t *testing.T) {
 	w := newWorld(t)
 	s := w.subscribe("alice", protocol.RoleMember, "")
-	const writers, txs = 8, 40
+	// The burst stays under QueueSize: a reader the scheduler starves must not
+	// trip the slow-consumer close (TestSlowConsumerClosedWith4008 covers it).
+	const writers, txs = 8, 10
 	total := 0
 	for i := range writers * txs {
 		total += 1 + i%3

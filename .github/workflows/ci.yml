@@ -125,6 +125,10 @@ jobs:
       run:
         shell: bash
         working-directory: tray
+    # Wails v3 builds against GTK 4 on Linux unless told otherwise; the tray
+    # targets GTK 3 and WebKitGTK 4.1, so every go command there needs the tag.
+    env:
+      GOFLAGS: ${{ matrix.os == 'ubuntu-latest' && '-tags=gtk3' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

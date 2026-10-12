@@ -57,7 +57,9 @@ test('search filters and snippet highlighting', async ({ open }) => {
   await dialog.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(dialog.getByText('No results.')).toBeVisible();
 
-  await dialog.getByLabel('Before').fill('');
+  // A window that includes today brings the hits back. (Clearing the field
+  // instead never reaches the form in WebKitGTK, the Linux WebKit build.)
+  await dialog.getByLabel('Before').fill('2099-01-01');
   await dialog.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(hits).toHaveCount(3);
   await hits.filter({ hasText: 'pager rota' }).click();
