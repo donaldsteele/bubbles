@@ -3,8 +3,8 @@
 
 export type RouteName =
   | 'home'
-  | 'setup'
   | 'login'
+  | 'register'
   | 'invite'
   | 'reset'
   | 'channel'
@@ -24,8 +24,8 @@ export interface Route {
 
 const PATTERNS: { name: RouteName; re: RegExp; keys: string[] }[] = [
   { name: 'home', re: /^\/$/, keys: [] },
-  { name: 'setup', re: /^\/setup$/, keys: [] },
   { name: 'login', re: /^\/login$/, keys: [] },
+  { name: 'register', re: /^\/register$/, keys: [] },
   { name: 'invite', re: /^\/invite\/([^/]+)$/, keys: ['code'] },
   { name: 'reset', re: /^\/reset\/([^/]+)$/, keys: ['code'] },
   { name: 'channel', re: /^\/c\/([^/]+)$/, keys: ['channelId'] },
@@ -61,17 +61,14 @@ export function matchRoute(rawPath: string): Route {
 
 export interface GuardContext {
   authenticated: boolean;
-  needsSetup: boolean | null;
   isAdmin: boolean;
 }
 
-const PUBLIC: RouteName[] = ['setup', 'login', 'invite', 'reset'];
+const PUBLIC: RouteName[] = ['login', 'register', 'invite', 'reset'];
 const ADMIN_ONLY: RouteName[] = ['admin'];
 
 /** Returns a redirect target for a route, or null when it may be shown. */
 export function guard(route: Route, ctx: GuardContext): string | null {
-  if (ctx.needsSetup === true) return route.name === 'setup' ? null : '/setup';
-  if (route.name === 'setup') return ctx.authenticated ? '/' : '/login';
   if (route.name === 'notfound') return null;
   if (PUBLIC.includes(route.name)) {
     return route.name === 'login' && ctx.authenticated ? '/' : null;
@@ -85,7 +82,6 @@ type Listener = (r: Route) => void;
 const listeners = new Set<Listener>();
 let ctxProvider: () => GuardContext = () => ({
   authenticated: false,
-  needsSetup: null,
   isAdmin: false,
 });
 let current: Route = matchRoute(location.pathname);

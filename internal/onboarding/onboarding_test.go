@@ -34,6 +34,11 @@ func sharedCA(t *testing.T) *tlsca.CA {
 
 func testHandler(t *testing.T, withCA bool) http.Handler {
 	t.Helper()
+	return testHandlerSignup(t, withCA, true)
+}
+
+func testHandlerSignup(t *testing.T, withCA, signupOpen bool) http.Handler {
+	t.Helper()
 	ca := sharedCA(t)
 	return New(Options{
 		InstanceName: func() string { return "Home Chat" },
@@ -43,9 +48,10 @@ func testHandler(t *testing.T, withCA bool) http.Handler {
 			}
 			return nil
 		},
-		HTTPSPort: 28225,
-		URLs:      func() []string { return []string{"https://192.168.1.20:28225/", "https://10.0.0.5:28225/"} },
-		Hosts:     func() []string { return []string{"bubbles.local", "127.0.0.1", "::1"} },
+		HTTPSPort:        28225,
+		RegistrationOpen: func() bool { return signupOpen },
+		URLs:             func() []string { return []string{"https://192.168.1.20:28225/", "https://10.0.0.5:28225/"} },
+		Hosts:            func() []string { return []string{"bubbles.local", "127.0.0.1", "::1"} },
 	})
 }
 
@@ -79,7 +85,8 @@ func TestPage(t *testing.T) {
 		ca.Cert.Subject.CommonName,
 		`href="https://192.168.1.20:28225/"`,
 		`href="https://10.0.0.5:28225/"`,
-		`src="/qr.svg?u=https%3a%2f%2f192.168.1.20%3a28225%2f"`,
+		`href="https://192.168.1.20:28225/register"`, "Create your account",
+		`src="/qr.svg?u=https%3a%2f%2f192.168.1.20%3a28225%2fregister"`,
 		`href="/onboarding.css"`,
 		"<details open>\n<summary>iPhone and iPad</summary>",
 		"<summary>Android</summary>", "<summary>Windows</summary>", "<summary>macOS</summary>",
@@ -101,6 +108,18 @@ func TestPage(t *testing.T) {
 	}
 	if rec.Header().Get("Content-Security-Policy") != ContentSecurityPolicy || rec.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("headers = %v", rec.Header())
+	}
+}
+
+func TestPageWhileSignupClosed(t *testing.T) {
+	body := get(testHandlerSignup(t, true, false), http.MethodGet, "/").Body.String()
+	for _, want := range []string{"2. Open bubbles", "Sign-up is closed. To join, ask the admin for an invite."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("closed page lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "/register") || strings.Contains(body, "Create your account") {
+		t.Error("closed page links to sign-up")
 	}
 }
 
@@ -165,6 +184,7 @@ func TestQRCode(t *testing.T) {
 		"https://BUBBLES.local:28225/",
 		"https://[::1]:28225/",
 		"https://192.168.1.20:28225/invite/abc_DEF-123",
+		"https://192.168.1.20:28225/register",
 	} {
 		rec := get(h, http.MethodGet, "/qr.svg?u="+urlQuery(u))
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/svg+xml" {
@@ -202,6 +222,7 @@ func TestInvitePage(t *testing.T) {
 	body := rec.Body.String()
 	if rec.Code != http.StatusOK || !strings.Contains(body, "You are invited to Home Chat") ||
 		!strings.Contains(body, `href="https://192.168.1.20:28225/invite/abc_DEF-123"`) ||
+		strings.Contains(body, "/register") ||
 		!strings.Contains(body, `src="/qr.svg?u=https%3a%2f%2f192.168.1.20%3a28225%2finvite%2fabc_DEF-123"`) {
 		t.Errorf("invite page: status = %d", rec.Code)
 	}

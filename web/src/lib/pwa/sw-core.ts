@@ -9,7 +9,7 @@ export const ICON_URL = '/icons/icon-192.png';
 
 export type Strategy = 'network-only' | 'emoji-cache' | 'navigation' | 'default';
 
-const NETWORK_ONLY = [/^\/api(\/|$)/, /^\/hooks(\/|$)/, /^\/auth(\/|$)/, /^\/setup/];
+const NETWORK_ONLY = [/^\/api(\/|$)/, /^\/hooks(\/|$)/, /^\/auth(\/|$)/];
 
 /**
  * Picks how the worker answers a request. 'default' leaves it to the precache

@@ -316,6 +316,51 @@ func (s *Service) credentials(ctx context.Context, username string) (*User, stri
 	return u, pwHash, nil
 }
 
+// credentialsByName finds the one active human whose display name matches
+// name (case- and width-insensitive). Zero or several matches return
+// (nil, "", nil).
+func (s *Service) credentialsByName(ctx context.Context, name string) (*User, string, error) {
+	n, why := normalizeDisplayName(cutRunes(name, maxLoginName*4))
+	if why != "" || n == "" {
+		return nil, "", nil
+	}
+	rows, err := s.db.Read().QueryContext(ctx, `SELECT `+userColumns("")+`, COALESCE(pw_hash, '') FROM users
+		WHERE display_key = ? AND kind = 'human' AND deactivated_at IS NULL LIMIT 2`, displayKey(n))
+	if err != nil {
+		return nil, "", fmt.Errorf("load credentials: %w", err)
+	}
+	defer rows.Close()
+	var (
+		found  *User
+		pwHash string
+		count  int
+	)
+	for rows.Next() {
+		var h string
+		u, err := scanUser(rows, &h)
+		if err != nil {
+			return nil, "", fmt.Errorf("load credentials: %w", err)
+		}
+		found, pwHash = u, h
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("load credentials: %w", err)
+	}
+	if count != 1 {
+		return nil, "", nil
+	}
+	return found, pwHash, nil
+}
+
+// cutRunes returns s cut to at most n runes.
+func cutRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
+}
+
 // auditLoginFailure records a failed login. The attempted name is stored
 // only when it looks like a username (people sometimes type a password
 // into that field).
@@ -449,21 +494,28 @@ func (s *Service) PurgeExpired(ctx context.Context) (int64, error) {
 // kind of failure. It returns the verified user, the stored hash and, when
 // the stored hash is outdated, a fresh one to persist.
 func (s *Service) verifyCredentials(ctx context.Context, in LoginInput) (*User, string, string, error) {
-	username := NormalizeUsername(in.Username)
-	if len(username) > maxLoginName {
-		username = username[:maxLoginName]
-	}
-	// The attempt is reserved before anything is checked, so a burst of
-	// concurrent logins cannot all reach the password check.
-	attempt, wait, blocked := s.logins.Begin(username, in.IP)
-	if blocked {
-		return nil, "", "", &RateLimitedError{RetryAfter: wait}
-	}
-
+	username := cutRunes(NormalizeUsername(cutRunes(in.Username, maxLoginName*4)), maxLoginName)
+	// The name may be a handle or a display name; resolve it first so the
+	// per-account limiter keys on the account either way.
 	user, pwHash, err := s.credentials(ctx, username)
 	if err != nil {
-		attempt.Abort()
 		return nil, "", "", err
+	}
+	if user == nil {
+		user, pwHash, err = s.credentialsByName(ctx, in.Username)
+		if err != nil {
+			return nil, "", "", err
+		}
+	}
+	limitKey := username
+	if user != nil {
+		limitKey = user.Username
+	}
+	// The attempt is reserved before the password is checked, so a burst of
+	// concurrent logins cannot all reach the password check.
+	attempt, wait, blocked := s.logins.Begin(limitKey, in.IP)
+	if blocked {
+		return nil, "", "", &RateLimitedError{RetryAfter: wait}
 	}
 	ok := false
 	switch {

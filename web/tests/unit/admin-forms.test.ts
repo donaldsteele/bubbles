@@ -16,6 +16,7 @@ import {
 const good: SettingsForm = {
   instanceName: 'Home',
   openRegistration: false,
+  registrationWindowHours: 24,
   uploadMaxMB: '100',
   userQuotaMB: '5120',
   diskReserveMB: '1024',
@@ -87,6 +88,7 @@ describe('settings wire conversion', () => {
     const wire = {
       instance_name: 'Home',
       open_registration: true,
+      registration_window_hours: 24,
       upload_max_bytes: 100 * 1024 * 1024,
       user_quota_bytes: 0,
       disk_reserve_bytes: 1024 ** 3,

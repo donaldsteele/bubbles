@@ -168,3 +168,28 @@ button:disabled {
 .fingerprint.old {
   opacity: 0.75;
 }
+
+[role="tablist"] {
+  display: flex;
+  gap: 4px;
+  margin: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+[role="tab"] {
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  padding: 8px 12px;
+}
+
+[role="tab"][aria-selected="true"] {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+[hidden] {
+  display: none !important;
+}

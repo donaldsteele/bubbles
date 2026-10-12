@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api, call } from '../lib/api/client';
   import { completeSignIn } from '../lib/boot';
-  import { failureFrom, validatePassword, validateUsername } from '../lib/forms';
+  import { signupFailure, validatePassword, validateRequired } from '../lib/forms';
   import { fmt, t } from '../lib/i18n/en';
   import FormField from '../components/forms/FormField.svelte';
 
@@ -9,8 +9,7 @@
 
   let status = $state<'checking' | 'valid' | 'invalid'>('checking');
   let instanceName = $state('');
-  let username = $state('');
-  let displayName = $state('');
+  let name = $state('');
   let password = $state('');
   let errors = $state<Record<string, string>>({});
   let formError = $state('');
@@ -31,24 +30,20 @@
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    errors = { username: validateUsername(username), password: validatePassword(password) };
+    errors = { name: validateRequired(name), password: validatePassword(password) };
     formError = '';
-    if (errors.username || errors.password) return;
+    if (errors.name || errors.password) return;
     submitting = true;
     try {
       const res = await call(
         api.POST('/invites/{code}/accept', {
           params: { path: { code } },
-          body: {
-            username: username.trim().toLowerCase(),
-            password,
-            ...(displayName.trim() ? { display_name: displayName.trim() } : {}),
-          },
+          body: { name: name.trim(), password },
         }),
       );
       await completeSignIn(res.user);
     } catch (err) {
-      const f = failureFrom(err, { 404: t.invite.invalid, 409: t.invite.conflict });
+      const f = signupFailure(err, { 404: t.invite.invalid });
       errors = f.fields;
       formError = f.form;
     } finally {
@@ -68,21 +63,13 @@
     <form onsubmit={submit} novalidate>
       {#if formError}<p class="form-error" role="alert">{formError}</p>{/if}
       <FormField
-        id="invite-username"
-        label={t.fields.username}
-        bind:value={username}
-        hint={t.hints.username}
-        error={errors.username}
-        autocomplete="username"
+        id="invite-name"
+        label={t.fields.yourName}
+        bind:value={name}
+        hint={t.hints.yourName}
+        error={errors.name}
+        autocomplete="name"
         required
-        disabled={submitting}
-      />
-      <FormField
-        id="invite-display"
-        label={t.fields.displayName}
-        bind:value={displayName}
-        hint={t.hints.displayName}
-        error={errors.display_name}
         disabled={submitting}
       />
       <FormField

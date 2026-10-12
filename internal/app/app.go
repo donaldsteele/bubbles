@@ -72,6 +72,9 @@ type Options struct {
 	// BackupWorkFactor is the scrypt work factor (log2 N) for admin backups;
 	// 0 means age's default (tests pass a cheap one).
 	BackupWorkFactor int
+	// AdminPassword fixes the password of the bootstrapped admin instead of a
+	// generated one (tests).
+	AdminPassword string
 	// LogFiles is the writer behind the server log; a factory reset wipes
 	// the log directory through it. Nil: the directory is wiped directly.
 	LogFiles LogFiles
@@ -170,9 +173,10 @@ type App struct {
 	lifeStop context.CancelFunc
 	trashWG  sync.WaitGroup
 
-	// setupToken is the plaintext first-run token, held only until the
-	// startup banner (or the factory-reset notice) has printed it.
-	setupToken string
+	// adminPassword is the plaintext password of a freshly bootstrapped
+	// admin, held only until the startup banner (or the factory-reset
+	// notice) has printed it.
+	adminPassword string
 
 	mdnsMu        sync.Mutex
 	mdns          *discovery.Advertiser
@@ -283,30 +287,21 @@ func (a *App) openCore(ctx context.Context) (err error) {
 	a.auth, err = auth.New(auth.Options{
 		DB: a.db, Settings: a.settings, DataDir: cfg.DataDir, Now: a.opts.Now, Logger: logger,
 		Params: a.opts.AuthParams,
-		// #general is created in the setup transaction; every new member or
-		// admin joins the default channels in the transaction that creates them.
-		OnSetup: a.chat.OnSetupTx, OnUserCreated: a.chat.OnUserCreatedTx,
+		// #general is created in the bootstrap transaction; every new member
+		// or admin joins the default channels in the transaction that creates
+		// them.
+		OnBootstrap: a.chat.OnBootstrapTx, OnUserCreated: a.chat.OnUserCreatedTx,
+		AdminPassword: a.bootstrapPassword(),
 	})
 	if err != nil {
 		return err
 	}
-	// With no users yet this writes <data>/setup-token.txt; the banner
-	// prints the token once the server is up. Right after a factory reset
-	// the token the reset issued (and showed) stays valid instead.
-	awaiting, err := reset.AwaitingSetup(ctx, a.db)
+	// With no users yet this creates the admin and writes
+	// <data>/admin-password.txt; the banner prints the password once the
+	// server is up. Right after a factory reset the reset notice does.
+	a.adminPassword, err = a.auth.BootstrapAdmin(ctx)
 	if err != nil {
-		return err
-	}
-	if awaiting {
-		a.setupToken, err = a.auth.AdoptSetupToken(ctx)
-	} else {
-		a.setupToken, err = a.auth.InitSetup(ctx)
-	}
-	if err != nil {
-		return fmt.Errorf("prepare first-run setup: %w", err)
-	}
-	if err := a.applyTestHooks(ctx); err != nil {
-		return err
+		return fmt.Errorf("bootstrap admin: %w", err)
 	}
 
 	api := httpapi.New(httpapi.Deps{
@@ -330,13 +325,14 @@ func (a *App) openCore(ctx context.Context) (err error) {
 	})
 	a.apiSlot.set(api)
 	a.onboardSlot.set(onboarding.New(onboarding.Options{
-		InstanceName: a.settings.InstanceName,
-		CA:           func() *tlsca.CA { return a.Certs().CA() },
-		HTTPSPort:    a.HTTPSPort(),
-		URLs:         a.URLs,
-		Hosts:        func() []string { return a.Certs().Status().SANs },
-		AllowedCIDRs: a.settings.AllowedCIDRs,
-		Logger:       logger,
+		InstanceName:     a.settings.InstanceName,
+		CA:               func() *tlsca.CA { return a.Certs().CA() },
+		HTTPSPort:        a.HTTPSPort(),
+		URLs:             a.URLs,
+		Hosts:            func() []string { return a.Certs().Status().SANs },
+		AllowedCIDRs:     a.settings.AllowedCIDRs,
+		RegistrationOpen: func() bool { return a.settings.RegistrationOpen(a.opts.Now()) },
+		Logger:           logger,
 	}))
 	a.jobs = a.defaultJobs()
 	return nil
@@ -575,19 +571,24 @@ func (a *App) printBanner(w io.Writer) {
 	} else {
 		fmt.Fprintf(w, "\n  CA fingerprint (SHA-256), compare it on each device:\n    %s\n\n", st.CAFingerprint)
 	}
-	a.printSetup(w)
+	a.printAdmin(w)
 }
 
-// printSetup shows the first-run setup token (on the console only, never in
-// the log). The plaintext is dropped afterwards; the token file in the data
-// directory keeps it until setup completes.
-func (a *App) printSetup(w io.Writer) {
-	if a.setupToken == "" {
+// printAdmin shows the generated admin password (on the console only, never
+// in the log). The plaintext is dropped afterwards; admin-password.txt in
+// the data directory keeps it until the password changes, and a later start
+// only points to that file.
+func (a *App) printAdmin(w io.Writer) {
+	path := filepath.Join(a.cfg.DataDir, auth.AdminPasswordFile)
+	if a.adminPassword != "" {
+		fmt.Fprintf(w, "  Sign in as:   %s\n  Password:     %s\n", auth.BootstrapAdminUsername, a.adminPassword)
+		fmt.Fprintf(w, "  (also saved in %s; deleted when you change the password)\n\n", path)
+		a.adminPassword = ""
 		return
 	}
-	fmt.Fprintf(w, "  First-run setup: open the address above and enter this setup token\n    %s\n", a.setupToken)
-	fmt.Fprintf(w, "  (also saved in %s, deleted when setup completes)\n\n", filepath.Join(a.cfg.DataDir, auth.SetupTokenFile))
-	a.setupToken = ""
+	if _, err := os.Stat(path); err == nil {
+		fmt.Fprintf(w, "  The first admin password is in %s\n\n", path)
+	}
 }
 
 // startMDNS advertises the server over mDNS unless --no-mdns or the

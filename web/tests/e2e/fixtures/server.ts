@@ -8,7 +8,6 @@ import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
 
-export const SETUP_TOKEN = 'e2e7e2e7e2e7e2e7e2e7e2e7e2e7e2e7e2e7e2e7e2e7e2e7e2e7';
 export const SESSION_COOKIE = '__Host-bubbles_session';
 export const PASSWORD = 'Correct-Horse-Battery-9';
 const exe = process.platform === 'win32' ? '.exe' : '';
@@ -112,7 +111,7 @@ export class Server {
         '--allow-public',
       ],
       {
-        env: { ...process.env, BUBBLES_TEST_SETUP_TOKEN: SETUP_TOKEN },
+        env: { ...process.env, BUBBLES_TEST_ADMIN_PASSWORD: PASSWORD },
         stdio: ['ignore', 'ignore', 'pipe'],
       },
     );
@@ -192,8 +191,10 @@ export class Server {
     rmSync(this.dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 
-  setupTokenFile(): string {
-    return readFileSync(path.join(this.dataDir, 'setup-token.txt'), 'utf8').trim();
+  /** The password line of the file the server wrote on first start. */
+  adminPasswordFile(): string {
+    const text = readFileSync(path.join(this.dataDir, 'admin-password.txt'), 'utf8');
+    return /^password: (.*)$/m.exec(text)?.[1]?.trim() ?? '';
   }
 
   api(method: string, urlPath: string, opts: ApiOptions = {}): Promise<ApiResult> {
@@ -264,17 +265,31 @@ export class Server {
     return { username, password, id, cookie };
   }
 
-  /** Completes first-run setup through the API and stores the admin. */
+  /**
+   * Prepares the bootstrap admin (the server creates it on first start with
+   * PASSWORD): names the instance and the admin, and stores the admin. Another
+   * username becomes a second admin created through an invite.
+   */
   async setupAdmin(username = 'admin', password = PASSWORD): Promise<User> {
-    const r = await this.must('POST', '/api/v1/setup', [201], {
+    const boot = await this.login('admin', PASSWORD);
+    await this.must('PATCH', '/api/v1/admin/settings', [200], {
+      as: boot,
+      json: { instance_name: this.instance },
+    });
+    // Specs expect the admin to be called 'Ada Admin'; display names are
+    // unique, so only the account that becomes this.admin gets it.
+    if (username === 'admin' && password === PASSWORD) {
+      await this.must('PATCH', '/api/v1/me', [200], {
+        as: boot,
+        json: { display_name: 'Ada Admin' },
+      });
+      this.admin = boot;
+      return boot;
+    }
+    const inv = await this.createInvite(boot, { role: 'admin' });
+    const r = await this.must('POST', `/api/v1/invites/${inv.code}/accept`, [200, 201], {
       as: null,
-      json: {
-        setup_token: SETUP_TOKEN,
-        username,
-        password,
-        display_name: 'Ada Admin',
-        instance_name: this.instance,
-      },
+      json: { username, display_name: 'Ada Admin', password },
     });
     this.admin = this.sessionFrom(r, username, password);
     return this.admin;

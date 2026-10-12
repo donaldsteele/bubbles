@@ -19,12 +19,15 @@ import (
 	"github.com/donaldsteele/bubbles/internal/audit"
 	"github.com/donaldsteele/bubbles/internal/events"
 	"github.com/donaldsteele/bubbles/internal/store"
+	"github.com/donaldsteele/bubbles/pkg/protocol"
 )
 
 // Setting keys.
 const (
 	KeyInstanceName         = "instance_name"
 	KeyOpenRegistration     = "open_registration"
+	KeyRegistrationWindowH  = "registration_window_hours"
+	KeyOpenRegistrationEnds = "open_registration_until"
 	KeyUploadMaxBytes       = "upload_max_bytes"
 	KeyUserQuotaBytes       = "user_quota_bytes"
 	KeyDiskReserveBytes     = "disk_reserve_bytes"
@@ -50,6 +53,8 @@ const (
 	MaxInstanceNameLen = 64
 	MaxSessionIdleDays = 90
 	MaxRetentionDays   = 3650
+	// MaxRegistrationWindowHours is one year.
+	MaxRegistrationWindowHours = 8760
 )
 
 // ErrInvalid is wrapped by every error that rejects a key or value.
@@ -59,6 +64,8 @@ var ErrInvalid = errors.New("invalid setting")
 type Values struct {
 	InstanceName         string
 	OpenRegistration     bool
+	RegistrationWindowH  int        // hours sign-up stays open once switched on; 0 = no deadline
+	OpenRegistrationEnds *time.Time // nil = no deadline
 	UploadMaxBytes       int64
 	UserQuotaBytes       int64 // 0 = unlimited
 	DiskReserveBytes     int64
@@ -75,15 +82,17 @@ type Values struct {
 // Defaults returns the value of every setting on a fresh instance.
 func Defaults() Values {
 	return Values{
-		InstanceName:     "bubbles",
-		UploadMaxBytes:   100 << 20,
-		UserQuotaBytes:   5 << 30,
-		DiskReserveBytes: 1 << 30,
-		PushPayload:      PushMinimal,
-		SessionIdleDays:  30,
-		AlertRenotifyS:   1800,
-		MDNSEnabled:      true,
-		WebResetEnabled:  true,
+		InstanceName:        "bubbles",
+		OpenRegistration:    true,
+		RegistrationWindowH: 24,
+		UploadMaxBytes:      100 << 20,
+		UserQuotaBytes:      5 << 30,
+		DiskReserveBytes:    1 << 30,
+		PushPayload:         PushMinimal,
+		SessionIdleDays:     30,
+		AlertRenotifyS:      1800,
+		MDNSEnabled:         true,
+		WebResetEnabled:     true,
 	}
 }
 
@@ -127,6 +136,34 @@ var defs = []def{
 	{KeyOpenRegistration, func(v *Values, raw json.RawMessage) (err error) {
 		v.OpenRegistration, err = decode[bool](raw)
 		return err
+	}},
+	{KeyRegistrationWindowH, func(v *Values, raw json.RawMessage) error {
+		n, err := decode[int64](raw)
+		if err != nil {
+			return err
+		}
+		if err := rangeInt(KeyRegistrationWindowH, n, 0, MaxRegistrationWindowHours); err != nil {
+			return err
+		}
+		v.RegistrationWindowH = int(n)
+		return nil
+	}},
+	{KeyOpenRegistrationEnds, func(v *Values, raw json.RawMessage) error {
+		p, err := decode[*string](raw)
+		if err != nil {
+			return err
+		}
+		if p == nil {
+			v.OpenRegistrationEnds = nil
+			return nil
+		}
+		t, err := time.Parse(protocol.TimeLayout, *p)
+		if err != nil {
+			return fmt.Errorf("%w: %s must be a timestamp like %s", ErrInvalid, KeyOpenRegistrationEnds, protocol.TimeLayout)
+		}
+		t = t.UTC()
+		v.OpenRegistrationEnds = &t
+		return nil
 	}},
 	{KeyUploadMaxBytes, func(v *Values, raw json.RawMessage) error {
 		n, err := decode[int64](raw)
@@ -339,8 +376,35 @@ func (s *Store) load(ctx context.Context) (Values, error) {
 // InstanceName is the display name of this server.
 func (s *Store) InstanceName() string { return s.Values().InstanceName }
 
-// OpenRegistration reports whether anyone may self-register.
-func (s *Store) OpenRegistration() bool { return s.Values().OpenRegistration }
+// RegistrationOpen reports whether anyone may self-register at now: the
+// switch is on and the deadline, if any, has not passed. Every sign-up check
+// goes through here.
+func (s *Store) RegistrationOpen(now time.Time) bool { return s.Values().RegistrationOpen(now) }
+
+// RegistrationOpen is Store.RegistrationOpen on a snapshot.
+func (v Values) RegistrationOpen(now time.Time) bool {
+	return v.OpenRegistration && (v.OpenRegistrationEnds == nil || now.Before(*v.OpenRegistrationEnds))
+}
+
+// RegistrationClosesAt is the sign-up deadline; nil when sign-up is switched
+// off or has no deadline. It does not look at the clock: a deadline that has
+// passed is still returned, so callers check RegistrationOpen too.
+func (s *Store) RegistrationClosesAt() *time.Time {
+	v := s.Values()
+	if !v.OpenRegistration {
+		return nil
+	}
+	return v.OpenRegistrationEnds
+}
+
+// DeadlineValue renders a sign-up deadline as the value to store for
+// open_registration_until; nil is JSON null.
+func DeadlineValue(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.UTC().Format(protocol.TimeLayout)
+}
 
 // UploadMaxBytes is the per-file upload limit.
 func (s *Store) UploadMaxBytes() int64 { return s.Values().UploadMaxBytes }

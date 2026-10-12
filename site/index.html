@@ -24,6 +24,8 @@
   <div class="wrap">
     <a class="wordmark" href="#top" aria-label="bubbles home"><img class="logo" src="assets/favicon.svg" alt="" width="28" height="28">bubbles</a>
     <nav aria-label="Sections">
+      <a href="#join">Join</a>
+      <a href="#start">Get started</a>
       <a href="#features">Features</a>
       <a href="#alerts">Alerts</a>
       <a href="#integrations">Integrations</a>
@@ -50,7 +52,7 @@
         <a class="button primary" href="#download"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-download"></use></svg>Download</a>
         <a class="button ghost" href="https://github.com/donaldsteele/bubbles">View on GitHub<svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-external-link"></use></svg></a>
       </div>
-      <p class="micro">Free · Apache-2.0 · Works offline · No cloud account · Invite-only</p>
+      <p class="micro">Free · Apache-2.0 · Works offline · No cloud account · Self sign-up</p>
     </div>
     <figure class="shot hero-shot">
       <div class="window">
@@ -72,6 +74,77 @@
     </div>
   </section>
 
+  <section class="band" id="join">
+    <div class="wrap">
+      <p class="eyebrow">For everyone</p>
+      <h2>Join in three steps.</h2>
+      <p class="sub">People join from a laptop or a phone in under a minute. No admin needed while sign-up is open.</p>
+      <ol class="steps">
+        <li><b>Find it.</b> The tray app lists the bubbles servers on your network. On a phone, scan the QR code or open the address.</li>
+        <li><b>Trust it once.</b> Compare the fingerprint and install the certificate. That is one prompt from your system.</li>
+        <li><b>Pick a name and a password.</b> Any password works, and you are in.</li>
+      </ol>
+      <div class="trio">
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">bubbles tray</span></div><button type="button" class="zoom" aria-label="Enlarge screenshot: the tray app finds the server"><img class="t-dark" src="assets/shots/tray-join-dark.png" width="1040" height="1280" loading="lazy" alt="The bubbles tray app listing Basement LAN as a server found on the network (dark theme)"><img class="t-light" src="assets/shots/tray-join-light.png" width="1040" height="1280" loading="lazy" alt="The bubbles tray app listing Basement LAN as a server found on the network (light theme)"></button></div><figcaption><b>Find.</b> The tray app lists servers on your network.</figcaption></figure>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">bubbles tray</span></div><button type="button" class="zoom" aria-label="Enlarge screenshot: the tray app asks to confirm the fingerprint"><img class="t-dark" src="assets/shots/tray-confirm-dark.png" width="1040" height="1280" loading="lazy" alt="The tray app asking you to compare the certificate fingerprint before joining Basement LAN (dark theme)"><img class="t-light" src="assets/shots/tray-confirm-light.png" width="1040" height="1280" loading="lazy" alt="The tray app asking you to compare the certificate fingerprint before joining Basement LAN (light theme)"></button></div><figcaption><b>Trust.</b> Compare the fingerprint once.</figcaption></figure>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">bubbles tray</span></div><button type="button" class="zoom" aria-label="Enlarge screenshot: the tray app account form"><img class="t-dark" src="assets/shots/tray-account-dark.png" width="1040" height="1280" loading="lazy" alt="The tray app account form with a name and a password filled in (dark theme)"><img class="t-light" src="assets/shots/tray-account-light.png" width="1040" height="1280" loading="lazy" alt="The tray app account form with a name and a password filled in (light theme)"></button></div><figcaption><b>Join.</b> Pick a name and a password.</figcaption></figure>
+      </div>
+      <div class="phones join-phones">
+        <figure class="shot"><div class="window">
+            <button type="button" class="zoom" aria-label="Enlarge screenshot: the onboarding page on a phone"><img src="assets/shots/phone-onboarding-light.png" width="1170" height="2532" loading="lazy" alt="The onboarding page on a phone with a Create your account button and a QR code for the server address"></button></div><figcaption><b>On a phone.</b> Open the onboarding page and tap Create your account.</figcaption></figure>
+        <figure class="shot"><div class="window">
+            <button type="button" class="zoom" aria-label="Enlarge screenshot: the register page on a phone"><img src="assets/shots/phone-register-light.png" width="1170" height="2532" loading="lazy" alt="The register page on a phone asking for a name and a password"></button></div><figcaption><b>Your name, any password.</b> Then you are in.</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="start">
+    <div class="wrap">
+      <p class="eyebrow">For the host</p>
+      <h2>Running in two minutes.</h2>
+      <p class="sub">One file to run, one password to read, and your people can join. No wizard, no token to copy.</p>
+      <ol class="steps">
+        <li><b>Download and run</b> one file on a computer that stays on.</li>
+        <li><b>Read the console.</b> It prints the address and the admin password.</li>
+        <li><b>Sign in, change the password,</b> and people join. Sign-up closes by itself after a day.</li>
+      </ol>
+      <div class="term console">
+        <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">bubbles</span></div>
+        <div class="out" tabindex="0" role="region" aria-label="What the bubbles console prints at start"><code>bubbles v0.2.0 is running
+
+  Open:        https://192.168.1.20:28225/
+  Onboarding:  http://192.168.1.20:28226/
+
+  CA fingerprint (SHA-256), compare it on each device:
+    A29F 73CA 36DA C90A 6905 A6D5 64AC E368 BF74 3EAD E54B 9A0B E449 0278 25CA 3A24
+
+  Sign in as:   admin
+  Password:     <span class="ok">k7mq-x4pz-9vbd-h2nc</span>
+  (also saved in C:\Users\you\AppData\Local\bubbles\admin-password.txt; deleted when you change the password)</code></div>
+      </div>
+      <div class="feature">
+        <div class="copy">
+          <p class="reading-label">Sign-up</p>
+          <h3>Open for a day, then it closes itself.</h3>
+          <p>Sign-up closes by itself. Reopen it for the next party or add people yourself.</p>
+          <ul class="readings"><li>auto-close</li><li>reopen any time</li><li>invites still work</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Administration · Settings</span></div><button type="button" class="zoom" aria-label="Enlarge screenshot: admin sign-up settings"><img src="assets/shots/admin-signup-dark.png" width="2560" height="1600" loading="lazy" alt="The admin settings page with the Sign-up section showing that sign-up is open until a set time, with Reopen and Close now buttons"></button></div><figcaption><b>Admin settings.</b> See when sign-up closes, close it now or reopen it.</figcaption></figure>
+      </div>
+      <div class="phones-feature">
+        <div class="copy">
+          <p class="reading-label">Sign in</p>
+          <h3>Everyone else just taps Create an account.</h3>
+          <p>While sign-up is open, the login page shows a Create an account link, so nobody has to wait for an invite.</p>
+        </div>
+        <div class="phones one">
+          <figure class="shot"><div class="window">
+            <button type="button" class="zoom" aria-label="Enlarge screenshot: the login page on a phone"><img src="assets/shots/phone-login-dark.png" width="1170" height="2532" loading="lazy" alt="The login page on a phone with a Create an account link under the sign-in form"></button></div><figcaption><b>Login.</b> A Create an account link appears while sign-up is open.</figcaption></figure>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="band" id="features">
     <div class="wrap">
       <p class="eyebrow">What it does</p>
@@ -84,7 +157,7 @@
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-file-image"></use></svg><h3>Files and photos</h3><p>Upload by button, drag and drop or paste. Images, video and audio show inline, and GPS location is stripped from photos.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-search"></use></svg><h3>Search</h3><p>Full-text search across the channels and DMs you can see, narrowed with <code>from:</code>, <code>in:</code> and <code>has:image</code>.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-smartphone"></use></svg><h3>Phones and desktops</h3><p>An installable web app for phones and computers, opt-in push notifications, and a desktop tray app for Windows, macOS and Linux.</p></article>
-        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-qr-code"></use></svg><h3>Invite by QR code</h3><p>No open sign-up. The admin makes an invite with a role, people scan the QR code with their phone, pick a name and they are in.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-qr-code"></use></svg><h3>Invite by QR code</h3><p>Sign-up is open for a day after the first start, then closes by itself. After that the admin makes an invite with a role, people scan the QR code, pick a name and they are in.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-shield-check"></use></svg><h3>Admin tools</h3><p>Settings, roles, an audit log, encrypted backups, certificate management and a reset for starting over.</p></article>
       </div>
     </div>
@@ -268,12 +341,13 @@
           <figcaption><b>Onboarding.</b> Each device installs the local CA once, with steps for iPhone, Android, Windows, macOS and Linux.</figcaption></figure>
         <ul class="safety">
           <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-key-round"></use></svg><span><b>Its own certificate authority.</b> bubbles creates an ECDSA P-256 CA on first start and issues the server certificate for its IP addresses and <code>bubbles.local</code>.</span></li>
-          <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-lock"></use></svg><span><b>Accounts by invite only.</b> argon2id passwords, login lockout, secure cookies and a setup token printed only on the server console.</span></li>
+          <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-lock"></use></svg><span><b>Accounts you control.</b> argon2id passwords, login lockout, secure cookies, and an admin password that is printed only on the server console and saved owner-only on disk.</span></li>
           <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-shield-check"></use></svg><span><b>Locked-down web app.</b> A strict Content Security Policy, origin checks, rate limits, and no scripts, fonts or images from anywhere else.</span></li>
           <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-eye-off"></use></svg><span><b>Privacy by default.</b> Photo location data is removed, push notifications carry no message text by default, and the server refuses clients from outside private address ranges.</span></li>
           <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-archive"></use></svg><span><b>Encrypted backups.</b> One command writes an age-encrypted archive; restore it on any host.</span></li>
         </ul>
       </div>
+      <p class="honest"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-lock"></use></svg><span><b>Open sign-up, honestly:</b> for the first day anyone on the network can create an account, and any password works. That suits a trusted LAN. Close sign-up, or switch to invites, at any time from the admin settings.</span></p>
       <p class="honest"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-message-circle"></use></svg><span><b>What it does not do:</b> there is no end-to-end encryption. Whoever runs the server can read the messages on it. The full threat model is in <a href="https://github.com/donaldsteele/bubbles/blob/main/docs/security.md">docs/security.md</a>.</span></p>
     </div>
   </section>
@@ -304,7 +378,7 @@
             <li class="keep"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>The CA, so trusted devices stay trusted (or rotate it)</li>
             <li class="keep"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>Server settings, if you choose to keep them</li>
           </ul>
-          <p>Back to the setup wizard with a new setup token, as if just installed.</p>
+          <p>Back to a fresh start: bubbles creates a new admin account with a new password, as if just installed.</p>
         </div>
       </div>
       <div class="feature slim">
@@ -323,7 +397,7 @@
   <section class="band" id="download">
     <div class="wrap">
       <p class="eyebrow">Download</p>
-      <h2>Unzip it, run it, scan the QR code.</h2>
+      <h2>Unzip it, run it, sign in.</h2>
       <p class="sub">One server binary per platform, no installer and no runtime to add. First time? <code>HOW-TO-OPEN.txt</code> in the zip covers the SmartScreen (Windows) and Gatekeeper (macOS) warnings for unsigned programs.</p>
       <div class="dl three">
         <div class="plat">
@@ -343,9 +417,9 @@
         </div>
       </div>
       <ol class="steps">
-        <li><b>Run bubbles</b> on a computer that stays on. The console prints a setup token and the address to open.</li>
-        <li><b>Open the address</b> on that computer, enter the token and create the admin account.</li>
-        <li><b>Invite everyone.</b> Phones open the onboarding page, trust the CA once, then scan the invite QR code.</li>
+        <li><b>Run bubbles</b> on a computer that stays on. The console prints the address to open and a generated admin password.</li>
+        <li><b>Sign in as admin</b> with the printed password and change it. Sign-up is open for a day, so people can already join.</li>
+        <li><b>People create their accounts.</b> Phones open the onboarding page, trust the CA once, then pick a name and a password.</li>
       </ol>
       <p class="sub small">Default ports: <code>28225</code> for the app (BUBBL on a phone keypad) and <code>28226</code> for onboarding, picked to stay clear of other servers and games. All releases: <a href="https://github.com/donaldsteele/bubbles/releases">github.com/donaldsteele/bubbles/releases</a> · Build from source: <code>bash scripts/build.sh</code> · Guides: <a href="https://github.com/donaldsteele/bubbles/blob/main/docs/onboarding.md">onboarding</a>, <a href="https://github.com/donaldsteele/bubbles/blob/main/docs/admin.md">admin</a></p>
     </div>

@@ -12,7 +12,7 @@ bubbles serve --data-dir ./data --https-addr 127.0.0.1:18443 --http-addr 127.0.0
 C="curl -s --ssl-no-revoke --cacert data/tls/ca.crt"      # TLS verified against the server's own CA
 ```
 
-Result: 26 of 26 items PASS, 0 FAIL. Re-run it after any change to headers, auth, files, backup or reset.
+Result: the last run passed 26 of 26 items on the previous build. The first-run items were replaced by the first-start admin password, sign-up window and tray CA items below, which are **NOT RUN** yet. Re-run the whole list on the release build; re-run it after any change to headers, auth, files, backup or reset.
 
 ## 1. Transport and headers
 
@@ -23,10 +23,10 @@ Result: 26 of 26 items PASS, 0 FAIL. Re-run it after any change to headers, auth
   (asserts `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`,
   the minimal `Permissions-Policy`).
 - [x] **PASS: the same headers and CSP on API and error responses.**
-  `$C -D - -o /dev/null https://127.0.0.1:18443/api/v1/setup/status` and `.../api/v1/nope` (404) both carried the CSP and
+  `$C -D - -o /dev/null https://127.0.0.1:18443/api/v1/status` and `.../api/v1/nope` (404) both carried the CSP and
   `X-Content-Type-Options: nosniff`; API answers carry `Cache-Control: no-store`.
 - [x] **PASS: the plain HTTP listener serves only onboarding assets and sets no cookies.**
-  `curl -sD - http://127.0.0.1:18080/api/v1/setup/status` -> `308`, `Location: https://127.0.0.1:18443/api/v1/setup/status`;
+  `curl -sD - http://127.0.0.1:18080/api/v1/status` -> `308`, `Location: https://127.0.0.1:18443/api/v1/status`;
   `curl -sD - http://127.0.0.1:18080/` -> `200` with its own CSP (`default-src 'none'; style-src 'self'; ...`), no `Set-Cookie`.
   Test: `go test ./internal/onboarding -run TestNoCookiesAnywhere`.
 
@@ -49,10 +49,15 @@ Result: 26 of 26 items PASS, 0 FAIL. Re-run it after any change to headers, auth
   `go test ./internal/httpapi -run 'TestNetworkGateCoversAuthRoutes|TestPairingHTTPNetworkGateAndValidation'` -> `ok`
   (private, loopback, CGNAT, link-local and ULA sources pass; public sources get `403 forbidden` on every route, including setup, login and pairing; the allow-list is read per request).
   The server also refuses to start on a public bind without `--allow-public`.
-- [x] **PASS: the setup token is single use.** Live: wrong token -> **403**; right token -> **201** (session cookie set);
-  the same token again -> **409**; `data/setup-token.txt` is gone after setup.
-  Tests: `go test ./internal/auth -run 'TestSetupWorksExactlyOnce|TestSetupWrongTokenIsRateLimited'`,
-  `go test ./internal/httpapi -run TestSetupWorksOnlyOnce` -> `ok`.
+- [ ] **NOT RUN: generated admin password at first start.** Expected: the console banner shows `Sign in as: admin` and
+  the password; `<data-dir>/admin-password.txt` exists and is owner-only; after the admin changes the password the file is
+  gone; on a later start, while the file exists, the banner says "The first admin password is in <path>".
+  Check on a fresh data directory with `ls -l` (Unix) or `icacls` (Windows).
+- [ ] **NOT RUN: sign-up window.** Expected: `GET /api/v1/status` returns `registration_open` and `registration_closes_at`;
+  `POST /api/v1/admin/registration` with `{"action":"close"}` makes `POST /api/v1/register` refuse; `{"action":"reopen"}`
+  opens it again; the closing time survives a restart; sign-up is limited to 20 attempts per IP address per hour.
+- [ ] **NOT RUN: the tray refuses an unconstrained CA.** Expected: a CA without critical name constraints limited to local
+  names and private IP ranges is refused, and nothing is installed.
 - [x] **PASS: login lockout holds under concurrency.** Live, 30 simultaneous wrong-password logins for one user:
   **5 x 401, 25 x 429** (exactly `LoginUserMaxFailures` password checks reached argon2); the correct password during the lockout -> **429**.
   Tests: `go test ./internal/auth -run 'TestLoginBurstReachesPasswordCheckAtMostLimit|TestLoginFailuresAndLockout'`,
@@ -71,7 +76,7 @@ Result: 26 of 26 items PASS, 0 FAIL. Re-run it after any change to headers, auth
   table=password_resets column=code_hash      typeof=blob length=32
   table=app_tokens      column=token_hash     typeof=blob length=32
   table=webhooks        column=token_hash     typeof=blob length=32
-  needles searched=8 plaintext hits=3   (all 3 hits are the message-body control canary in messages/events; 0 for session cookie, invite code, app token, webhook token, reset code, passwords, setup token)
+  needles searched=8 plaintext hits=3   (all 3 hits are the message-body control canary in messages/events; 0 for session cookie, invite code, app token, webhook token, reset code, passwords)
   ```
 
   `device_tokens.token_hash` and `pairing_requests.poll_secret_hash` are `BLOB NOT NULL` in the schema
@@ -83,7 +88,7 @@ Result: 26 of 26 items PASS, 0 FAIL. Re-run it after any change to headers, auth
   with the known password `Pw-Canary-8f3a91c2-XyZ`, created a second account (`Pw-Second-...`), uploaded `canary-filename-5521.txt`,
   and issued a session, an app token (`bub_...`) and a webhook token. `grep -rlF` over both log files for the body canary, both passwords,
   the file-name canary, the first 8 characters of the session cookie, of the app token and of the webhook token returned **0 files each**.
-  One expected exception: the one-time setup token is printed on the console banner (stderr) so the operator can finish setup; it is
+  One expected exception: the generated admin password is printed on the console banner (stderr) at first start so the operator can sign in; it is
   never written to `data/logs/bubbles.log`. Tests: `go test ./internal/httpapi -run 'TestWebhookDoesNotLogOrAuditBodies|TestWebhookTokenAndBodyNeverReachTheLog'` -> `ok`.
 - [x] **PASS: backup encryption is the default.** `bubbles backup --out nopass.bbk` without a terminal or passphrase file refuses:
   `no terminal to ask for a passphrase: pass --passphrase-file, or --no-encrypt to accept an unprotected archive`.
@@ -136,7 +141,7 @@ Result: 26 of 26 items PASS, 0 FAIL. Re-run it after any change to headers, auth
   `go test ./internal/app -run 'TestResetDeniedAttemptsAreAuditedAndWebResetCanBeDisabled|TestMaintenanceModeRefusesEverythingButHealthz'` -> `ok`.
 - [x] **PASS: factory reset leaves no canary.** `bash scripts/smoke-serve.sh --reset-roundtrip` ->
   `smoke-serve: reset round trip OK` / `smoke-serve: OK` (posts a canary message and photo, factory resets over the API, checks that the
-  setup wizard is back and that neither canary survives in any file under the data directory). Test:
+  a new admin password is shown and that neither canary survives in any file under the data directory). Test:
   `go test ./internal/app -run TestResetFactoryOverHTTP` -> `ok`.
 - [x] **PASS: the Wails tray origin and window gate.** `cd tray && go test -count=1 . -run 'TestWindowAllowed|TestOriginAllowed|TestOriginGateMiddleware'` -> `ok`
   (only the configured server origin can be loaded; other windows and origins are refused).

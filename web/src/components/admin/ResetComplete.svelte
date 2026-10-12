@@ -6,15 +6,15 @@
   import { t } from '../../lib/i18n/en';
 
   const result = $derived(resetFlow.factory);
-  const setupHref = $derived(resetFlow.setupHref());
+  const signInHref = $derived(resetFlow.signInHref());
 
-  /** The token is gone from memory once the admin has saved it. */
-  function forgetToken() {
-    if (resetFlow.factory) resetFlow.factory = { ...resetFlow.factory, setup_token: '' };
+  /** The password is gone from memory once the admin has saved it. */
+  function forgetPassword() {
+    if (resetFlow.factory) resetFlow.factory = { ...resetFlow.factory, admin_password: '' };
   }
 
-  function start() {
-    const href = resetFlow.setupHref();
+  function signIn() {
+    const href = resetFlow.signInHref();
     resetFlow.dismiss();
     location.assign(href);
   }
@@ -32,10 +32,15 @@
     <h1 id="reset-done-title" tabindex="-1">{t.danger.doneTitle}</h1>
     <p>{t.danger.doneBody}</p>
 
-    <SecretOnce title={t.danger.setupToken} secret={result.setup_token} ondismiss={forgetToken}>
-      <p class="hint">{t.danger.setupUrl}</p>
-      <p class="mono"><a href={setupHref}>{setupHref}</a></p>
-      <QrImage value={setupHref} label={t.danger.qrSetup} />
+    <p>{t.danger.adminUsername}: <strong class="mono">{result.admin_username}</strong></p>
+    <SecretOnce
+      title={t.danger.adminPassword}
+      secret={result.admin_password}
+      ondismiss={forgetPassword}
+    >
+      <p class="hint">{t.danger.signInUrl}</p>
+      <p class="mono"><a href={signInHref}>{signInHref}</a></p>
+      <QrImage value={signInHref} label={t.danger.qrSignIn} />
     </SecretOnce>
 
     {#if result.ca_rotated}
@@ -45,7 +50,7 @@
         <p class="mono">{groupFingerprint(result.ca_fingerprint)}</p>
       </div>
     {/if}
-    <button class="btn primary" type="button" onclick={start}>{t.danger.startSetup}</button>
+    <button class="btn primary" type="button" onclick={signIn}>{t.danger.signIn}</button>
   {:else}
     <h1 id="reset-done-title" tabindex="-1">{t.danger.working}</h1>
     <p role="status">{t.danger.workingHelp}</p>

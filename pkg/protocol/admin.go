@@ -25,8 +25,14 @@ type AdminOverview struct {
 // AdminSettings is the body of GET /admin/settings and the answer of PATCH:
 // every setting with defaults applied.
 type AdminSettings struct {
-	InstanceName         string   `json:"instance_name"`
-	OpenRegistration     bool     `json:"open_registration"`
+	InstanceName        string `json:"instance_name"`
+	OpenRegistration    bool   `json:"open_registration"`
+	RegistrationWindowH int    `json:"registration_window_hours"`
+	// OpenRegistrationUntil is the sign-up deadline; null for none. Set it
+	// with POST /admin/registration, not PATCH.
+	OpenRegistrationUntil *string `json:"open_registration_until"`
+	// RegistrationOpen is computed: switched on and inside the window.
+	RegistrationOpen     bool     `json:"registration_open"`
 	UploadMaxBytes       int64    `json:"upload_max_bytes"`
 	UserQuotaBytes       int64    `json:"user_quota_bytes"`
 	DiskReserveBytes     int64    `json:"disk_reserve_bytes"`
@@ -38,6 +44,25 @@ type AdminSettings struct {
 	AlertRenotifyS       int      `json:"alert_renotify_s"`
 	MDNSEnabled          bool     `json:"mdns_enabled"`
 	WebResetEnabled      bool     `json:"web_reset_enabled"`
+}
+
+// AdminCreateUserRequest is the body of POST /admin/users ("Add person").
+type AdminCreateUserRequest struct {
+	Name     string `json:"name"`
+	Password string `json:"password"`
+	// Role is admin, member or guest; empty means member.
+	Role string `json:"role,omitempty"`
+}
+
+// Registration actions of POST /admin/registration.
+const (
+	RegistrationReopen = "reopen"
+	RegistrationClose  = "close"
+)
+
+// RegistrationActionRequest is the body of POST /admin/registration.
+type RegistrationActionRequest struct {
+	Action string `json:"action"`
 }
 
 // AdminUserList is the body of GET /admin/users (human accounts).

@@ -50,7 +50,7 @@ type testEnv struct {
 }
 
 type envOpts struct {
-	onSetup       func(ctx context.Context, tx *store.Tx, adminID string) error
+	onBootstrap   func(ctx context.Context, tx *store.Tx, adminID string) error
 	onUserCreated func(ctx context.Context, tx *store.Tx, userID string) error
 }
 
@@ -70,7 +70,7 @@ func newEnv(t *testing.T, o ...envOpts) *testEnv {
 	st := settings.New(db)
 	svc, err := New(Options{
 		DB: db, Settings: st, DataDir: dir, Now: clock.Now,
-		Params: cheapParams, OnSetup: opt.onSetup, OnUserCreated: opt.onUserCreated,
+		Params: cheapParams, OnBootstrap: opt.onBootstrap, OnUserCreated: opt.onUserCreated,
 	})
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
@@ -88,7 +88,7 @@ func (e *testEnv) addUser(username string, role Role) *User {
 	var u *User
 	err = e.db.Do(e.ctx, func(tx *store.Tx) error {
 		var err error
-		u, err = insertUser(tx, newUserFields{username: username, displayName: username, password: goodPassword}, role, hash)
+		u, err = insertUser(tx, newUserFields{username: username, displayName: username, displayKey: displayKey(username), password: goodPassword}, role, hash)
 		return err
 	})
 	if err != nil {

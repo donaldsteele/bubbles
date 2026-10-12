@@ -44,6 +44,9 @@ type Options struct {
 	// AllowedCIDRs returns extra source ranges admitted besides private and
 	// loopback addresses; nil means none.
 	AllowedCIDRs func() []netip.Prefix
+	// RegistrationOpen reports whether sign-up is open right now; nil means
+	// unknown and the page says nothing about sign-up.
+	RegistrationOpen func() bool
 	// Logger receives template errors; nil discards them.
 	Logger *slog.Logger
 }

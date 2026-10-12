@@ -132,7 +132,10 @@ func (s *Service) LookupInvite(ctx context.Context, code string) (InviteStatus, 
 
 // AcceptInviteInput is the input of AcceptInvite.
 type AcceptInviteInput struct {
-	Code        string
+	Code string
+	// Name is the person's display name; when set, the handle is derived
+	// from it and Username / DisplayName are ignored.
+	Name        string
 	Username    string
 	Password    string
 	DisplayName string
@@ -152,7 +155,7 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (*Sess
 	if !st.Valid {
 		return nil, ErrInviteInvalid
 	}
-	f, verr := validateNewUser(in.Username, in.DisplayName, in.Password)
+	f, verr := validateSignup(in.Name, in.Username, in.DisplayName, in.Password)
 	if verr != nil {
 		return nil, verr
 	}
@@ -244,20 +247,21 @@ func (s *Service) ListInvites(ctx context.Context) ([]Invite, error) {
 
 // RegisterInput is the input of Register.
 type RegisterInput struct {
-	Username    string
-	Password    string
-	DisplayName string
-	UserAgent   string
-	IP          string
+	// Name is the person's display name; the handle is derived from it.
+	Name      string
+	Password  string
+	UserAgent string
+	IP        string
 }
 
-// Register creates a member account when the open_registration setting is
-// on (ErrRegistrationClosed otherwise) and starts a session.
+// Register creates a member account while sign-up is open (switched on and
+// inside its window; ErrRegistrationClosed otherwise) and starts a session.
+// Every attempt counts against the per-IP limit.
 func (s *Service) Register(ctx context.Context, in RegisterInput) (*SessionResult, error) {
-	if !s.settings.OpenRegistration() {
-		return nil, ErrRegistrationClosed
+	if err := s.signupAllowed(in.IP); err != nil {
+		return nil, err
 	}
-	f, verr := validateNewUser(in.Username, in.DisplayName, in.Password)
+	f, verr := validateNewName(in.Name, in.Password)
 	if verr != nil {
 		return nil, verr
 	}
@@ -287,4 +291,19 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*SessionResul
 		return nil, err
 	}
 	return &res, nil
+}
+
+// signupAllowed gates the public sign-up endpoints: the per-IP attempt limit
+// (every attempt counts, successful or not), then the sign-up window.
+func (s *Service) signupAllowed(ip string) error {
+	if key := IPKey(ip); key != "" {
+		if wait, blocked := s.signups.Blocked(key); blocked {
+			return &RateLimitedError{RetryAfter: wait}
+		}
+		s.signups.Fail(key)
+	}
+	if !s.settings.RegistrationOpen(s.now()) {
+		return ErrRegistrationClosed
+	}
+	return nil
 }

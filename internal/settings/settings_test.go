@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"path/filepath"
@@ -40,27 +41,28 @@ func TestDefaults(t *testing.T) {
 		t.Errorf("fresh values = %+v", got)
 	}
 	checks := map[string]bool{
-		"instance_name bubbles":   s.InstanceName() == "bubbles",
-		"open_registration false": !s.OpenRegistration(),
-		"upload_max 100 MiB":      s.UploadMaxBytes() == 100<<20,
-		"quota 5 GiB":             s.UserQuotaBytes() == 5<<30,
-		"reserve 1 GiB":           s.DiskReserveBytes() == 1<<30,
-		"retention forever":       s.DefaultRetentionDays() == nil,
-		"web push off":            !s.WebPushEnabled(),
-		"push payload minimal":    s.PushPayload() == PushMinimal,
-		"allowed_cidrs empty":     len(s.AllowedCIDRs()) == 0,
-		"session idle 30 days":    s.SessionIdleDays() == 30,
-		"alert renotify 1800":     s.AlertRenotifyS() == 1800,
-		"mdns on":                 s.MDNSEnabled(),
-		"web reset enabled":       s.WebResetEnabled(),
+		"instance_name bubbles":  s.InstanceName() == "bubbles",
+		"open_registration true": s.RegistrationOpen(time.Now()),
+		"window 24h":             s.Values().RegistrationWindowH == 24 && s.RegistrationClosesAt() == nil,
+		"upload_max 100 MiB":     s.UploadMaxBytes() == 100<<20,
+		"quota 5 GiB":            s.UserQuotaBytes() == 5<<30,
+		"reserve 1 GiB":          s.DiskReserveBytes() == 1<<30,
+		"retention forever":      s.DefaultRetentionDays() == nil,
+		"web push off":           !s.WebPushEnabled(),
+		"push payload minimal":   s.PushPayload() == PushMinimal,
+		"allowed_cidrs empty":    len(s.AllowedCIDRs()) == 0,
+		"session idle 30 days":   s.SessionIdleDays() == 30,
+		"alert renotify 1800":    s.AlertRenotifyS() == 1800,
+		"mdns on":                s.MDNSEnabled(),
+		"web reset enabled":      s.WebResetEnabled(),
 	}
 	for name, ok := range checks {
 		if !ok {
 			t.Errorf("default %s", name)
 		}
 	}
-	if got := len(Keys()); got != 13 {
-		t.Errorf("%d keys, want 13", got)
+	if got := len(Keys()); got != 15 {
+		t.Errorf("%d keys, want 15", got)
 	}
 }
 
@@ -208,5 +210,120 @@ func TestInvalidateAfterExternalChange(t *testing.T) {
 	s.Invalidate()
 	if s.SessionIdleDays() != 14 {
 		t.Error("Invalidate did not reload")
+	}
+}
+
+func TestRegistrationOpenWindow(t *testing.T) {
+	s, _ := openStore(t)
+	ctx := context.Background()
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	until := base.Add(24 * time.Hour)
+	if err := s.Set(ctx, audit.Console, KeyOpenRegistrationEnds, DeadlineValue(&until)); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		at   time.Time
+		want bool
+	}{
+		"before": {until.Add(-time.Millisecond), true},
+		"at":     {until, false},
+		"after":  {until.Add(time.Millisecond), false},
+	} {
+		if got := s.RegistrationOpen(tc.at); got != tc.want {
+			t.Errorf("%s the deadline: open = %v, want %v", name, got, tc.want)
+		}
+	}
+	if got := s.RegistrationClosesAt(); got == nil || !got.Equal(until) {
+		t.Errorf("closes at = %v, want %v", got, until)
+	}
+	// A fresh store over the same database still says closed.
+	if New(s.db).RegistrationOpen(until.Add(time.Hour)) {
+		t.Error("a new store reopened sign-up after the deadline")
+	}
+	if err := s.Set(ctx, audit.Console, KeyOpenRegistrationEnds, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !s.RegistrationOpen(until.Add(1000 * time.Hour)) {
+		t.Error("no deadline should stay open")
+	}
+	if err := s.Set(ctx, audit.Console, KeyOpenRegistration, false); err != nil {
+		t.Fatal(err)
+	}
+	if s.RegistrationOpen(base) || s.RegistrationClosesAt() != nil {
+		t.Error("switched off should be closed with no deadline")
+	}
+}
+
+func TestRegistrationSettingsValidation(t *testing.T) {
+	for _, tc := range []struct {
+		key string
+		val any
+		ok  bool
+	}{
+		{KeyRegistrationWindowH, 0, true},
+		{KeyRegistrationWindowH, 8760, true},
+		{KeyRegistrationWindowH, 8761, false},
+		{KeyRegistrationWindowH, -1, false},
+		{KeyOpenRegistrationEnds, nil, true},
+		{KeyOpenRegistrationEnds, "2026-01-02T03:04:05.000Z", true},
+		{KeyOpenRegistrationEnds, "tomorrow", false},
+		{KeyOpenRegistrationEnds, 5, false},
+	} {
+		err := Validate(tc.key, tc.val)
+		if (err == nil) != tc.ok {
+			t.Errorf("Validate(%s, %v) = %v, ok want %v", tc.key, tc.val, err, tc.ok)
+		}
+	}
+}
+
+func TestSetManyAtDeadlineRules(t *testing.T) {
+	s, _ := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	patch := func(kv map[string]any) {
+		t.Helper()
+		m := map[string]json.RawMessage{}
+		for k, v := range kv {
+			m[k], _ = json.Marshal(v)
+		}
+		if err := s.SetManyAt(ctx, audit.Console, now, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	patch(map[string]any{KeyOpenRegistration: false})
+	if s.RegistrationClosesAt() != nil || s.RegistrationOpen(now) {
+		t.Fatal("off should be closed")
+	}
+	patch(map[string]any{KeyOpenRegistration: true})
+	if got := s.RegistrationClosesAt(); got == nil || !got.Equal(now.Add(24*time.Hour)) {
+		t.Errorf("switch on: closes at %v", got)
+	}
+	later := now.Add(5 * time.Hour)
+	if err := s.SetManyAt(ctx, audit.Console, later, map[string]json.RawMessage{KeyRegistrationWindowH: json.RawMessage("2")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.RegistrationClosesAt(); got == nil || !got.Equal(later.Add(2*time.Hour)) {
+		t.Errorf("window change: closes at %v", got)
+	}
+	patch(map[string]any{KeyRegistrationWindowH: 0})
+	if s.RegistrationClosesAt() != nil || !s.RegistrationOpen(now.Add(9999*time.Hour)) {
+		t.Error("window 0 should clear the deadline")
+	}
+	patch(map[string]any{KeyOpenRegistration: false})
+	patch(map[string]any{KeyRegistrationWindowH: 6})
+	if s.RegistrationOpen(now) {
+		t.Error("changing the window must not open sign-up")
+	}
+	if err := s.ReopenRegistration(ctx, audit.Console, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.RegistrationClosesAt(); got == nil || !got.Equal(now.Add(6*time.Hour)) {
+		t.Errorf("reopen: closes at %v", got)
+	}
+	if err := s.CloseRegistration(ctx, audit.Console); err != nil {
+		t.Fatal(err)
+	}
+	if s.RegistrationOpen(now) || s.RegistrationClosesAt() != nil {
+		t.Error("close")
 	}
 }

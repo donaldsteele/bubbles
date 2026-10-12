@@ -1,36 +1,23 @@
-import {
-  expect,
-  loginAs,
-  message,
-  openChannel,
-  PASSWORD,
-  send,
-  SETUP_TOKEN,
-  setupAdminUI,
-  test,
-} from './fixtures';
+import { expect, loginAs, message, openChannel, PASSWORD, send, test } from './fixtures';
 
 test.use({ specId: 'setup-and-invite' });
 test.describe.configure({ mode: 'serial' });
 
-test('setup wizard, invite link, second user joins and chats', async ({ server, open }) => {
+test('first sign-in, invite link, second user joins and chats', async ({ server, open }) => {
   const admin = await open(null);
   await admin.page.goto('/');
-  await expect(admin.page).toHaveURL(/\/setup/);
+  await expect(admin.page).toHaveURL(/\/login/);
 
-  // A wrong token is refused, the right one creates the administrator.
-  await admin.page.getByLabel('Setup token').fill('0'.repeat(52));
-  await admin.page.getByLabel('Instance name').fill('Bubbles E2E');
+  // The server created the admin on first start; sign in with its password.
   await admin.page.getByLabel('Username').fill('admin');
   await admin.page.getByLabel('Password').fill(PASSWORD);
-  await admin.page.getByRole('button', { name: 'Create administrator' }).click();
-  await expect(admin.page.getByRole('alert')).toContainText('setup token was not accepted');
-  await setupAdminUI(admin.page, SETUP_TOKEN, {
-    instance: 'Bubbles E2E',
-    username: 'admin',
-    password: PASSWORD,
-  });
+  await admin.page.getByRole('button', { name: 'Sign in' }).click();
   await expect(admin.page.getByRole('heading', { level: 1 })).toHaveText('Welcome');
+  expect(server.adminPasswordFile()).toBe(PASSWORD);
+  await server.must('PATCH', '/api/v1/admin/settings', [200], {
+    as: await server.login('admin'),
+    json: { instance_name: 'Bubbles E2E' },
+  });
 
   // Create an invite in the admin UI; the link is shown once.
   await admin.page.goto('/admin/invites');
@@ -47,8 +34,7 @@ test('setup wizard, invite link, second user joins and chats', async ({ server, 
   const guest = await open(null);
   await guest.page.goto(`/invite/${code}`);
   await expect(guest.page.getByRole('heading', { level: 1 })).toContainText('Join Bubbles E2E');
-  await guest.page.getByLabel('Username').fill('bea');
-  await guest.page.getByLabel('Display name').fill('Bea');
+  await guest.page.getByLabel('Your name').fill('Bea');
   await guest.page.getByLabel('Password').fill(PASSWORD);
   await guest.page.getByRole('button', { name: 'Create account' }).click();
   await openChannel(guest.page, 'general');
@@ -61,7 +47,7 @@ test('setup wizard, invite link, second user joins and chats', async ({ server, 
 
   // Signing out and in again through the login form works.
   const again = await open(null);
-  await loginAs(again.page, { username: 'bea', password: PASSWORD });
+  await loginAs(again.page, { username: 'Bea', password: PASSWORD });
   await openChannel(again.page, 'general');
   await expect(message(again.page, 'hello from bea')).toBeVisible();
   expect((await server.login('bea')).cookie).not.toBe('');

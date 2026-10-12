@@ -10,8 +10,16 @@ Run it
   macOS     Unzip, then open a Terminal in that folder and run ./bubbles
   Linux     Unzip, then run ./bubbles from a terminal.
 
-The first start prints a one-time setup token and the addresses to open
-(for example https://192.168.1.20:28225 and https://bubbles.local:28225).
+The first start prints the admin account and its generated password, plus the
+addresses to open (for example https://192.168.1.20:28225 and
+https://bubbles.local:28225):
+
+      Sign in as:   admin
+      Password:     k7mq-x4pz-9vbd-h2nc
+
+The password is also saved in a file named admin-password.txt in the data
+folder (on Windows: %LOCALAPPDATA%\bubbles). Only your user account can read it.
+The file is deleted when you change the password.
 Keep that console window open while people use the chat.
 
 Unsigned binaries: the release is not code-signed. The operating system will
@@ -44,9 +52,14 @@ Linux
 
 Next steps
 ----------
-  1. Open the setup address in a browser on the server and enter the setup token.
-  2. Other devices: open the address on the server console, follow the steps
-     to trust the local certificate, then scan the QR code or sign in.
+  1. Open the address in a browser on the server, sign in as admin with the
+     password from the console, and change the password.
+  2. Other people: open the onboarding address on the server console (port
+     28226, for example http://192.168.1.20:28226), trust the local certificate
+     once, then tap "Create your account" (or sign in). On a computer, the
+     desktop app can do this for you.
+     Sign-up closes by itself after a day. Reopen it in Admin > Settings, or
+     ask the admin for an invitation link.
 
 Full documentation (quickstart per OS, certificate install, admin guide,
 security notes): see README.md and the docs/ folder of the project.

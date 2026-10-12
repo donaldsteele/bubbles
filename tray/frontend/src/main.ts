@@ -54,13 +54,23 @@ function show(state: ViewState): void {
   switch (state.screen) {
     case "confirm":
       return showConfirm(state);
-    case "login":
-      return showLogin(state);
+    case "account":
+      return showAccount(state);
     case "done":
       return showDone(state);
     default:
       return showServer(state);
   }
+}
+
+function joinLabel(s: ServerInfo): string {
+  let address = s.url;
+  try {
+    address = new URL(s.url).host || s.url;
+  } catch {
+    // keep the text as given
+  }
+  return s.name ? `Join ${s.name} · ${address}` : `Join ${address}`;
 }
 
 function showServer(state: ViewState): void {
@@ -76,6 +86,7 @@ function showServer(state: ViewState): void {
   const cont = el("button", { class: "primary", type: "button" }, "Continue");
   const search = el("button", { type: "button" }, "Search again");
 
+  let first = true;
   const scan = async () => {
     found.textContent = "Looking for servers on this network...";
     list.replaceChildren();
@@ -85,20 +96,27 @@ function showServer(state: ViewState): void {
     } catch {
       servers = [];
     }
+    const initial = first;
+    first = false;
     found.textContent = servers.length ? "Servers found:" : "No server found. Type the address below.";
     for (const s of servers) {
-      const b = el("button", { type: "button" }, `${s.name || s.url} (${s.url})`);
+      const b = el("button", { type: "button", class: "join" }, joinLabel(s));
       b.addEventListener("click", () => {
         url.value = s.url;
         port.value = s.onboardPort;
-        void submit();
+        void submit(s.name);
       });
       list.append(el("li", {}, b));
     }
+    if (servers.length === 1 && initial) list.querySelector<HTMLElement>("button.join")?.focus();
   };
 
-  const submit = async () => {
-    const next = await busy(cont, "Contacting server...", () => AuthService.Prepare(url.value.trim(), port.value.trim()));
+  const submit = async (name = "") => {
+    const next = await busy(cont, "Contacting server...", () =>
+      name
+        ? AuthService.PrepareNamed(url.value.trim(), port.value.trim(), name)
+        : AuthService.Prepare(url.value.trim(), port.value.trim()),
+    );
     show(next);
   };
 
@@ -129,7 +147,7 @@ function showConfirm(state: ViewState): void {
   if (!prompt) return showServer(state);
   const sure = el("input", { type: "checkbox", id: "sure" });
   const trust = el("input", { type: "checkbox", id: "trust", checked: state.canInstall });
-  const ok = el("button", { class: "primary", type: "button", disabled: true }, "Trust this server");
+  const ok = el("button", { class: "primary", type: "button", disabled: true }, "Trust and continue");
   const back = el("button", { type: "button" }, "Cancel");
 
   sure.addEventListener("change", () => {
@@ -141,16 +159,22 @@ function showConfirm(state: ViewState): void {
     show(next);
   });
 
-  const heading = state.reconfirm || prompt.changed ? "The server identity changed" : "Check the server fingerprint";
+  const changed = state.reconfirm || prompt.changed;
+  const heading = changed
+    ? "The server identity changed"
+    : state.instance
+      ? `Join ${state.instance}?`
+      : "Check the server fingerprint";
   render(
     el("h1", {}, heading),
     notice(state.notice),
-    (state.reconfirm || prompt.changed) &&
+    changed &&
       notice(
         "This server presents a different certificate authority than the one you trusted before. " +
           "This is expected only if an administrator reset or rebuilt the server. Do not continue otherwise.",
         "bad",
       ),
+    el("p", { class: "muted" }, `Server: ${state.address}`),
     el("p", {}, "Compare this fingerprint with the one shown by the bubbles server (Admin, TLS) or by its administrator:"),
     el("div", { class: "fingerprint", id: "fingerprint" }, prompt.grouped),
     prompt.changed && prompt.previous
@@ -170,13 +194,91 @@ function showConfirm(state: ViewState): void {
   );
 }
 
-function showLogin(state: ViewState): void {
+function showAccount(state: ViewState): void {
+  const instance = state.instance;
+  const tabs: { id: string; label: string }[] = [
+    { id: "create", label: "Create account" },
+    { id: "signin", label: "Sign in" },
+  ];
+  let current = state.defaultTab === "create" ? "create" : "signin";
+
+  const tablist = el("div", { role: "tablist", "aria-label": "Account" });
+  const buttons = new Map<string, HTMLButtonElement>();
+  const panels = new Map<string, HTMLElement>();
+  for (const t of tabs) {
+    const b = el("button", {
+      type: "button", role: "tab", id: `tab-${t.id}`, "aria-controls": `panel-${t.id}`, class: "tab",
+    }, t.label);
+    b.addEventListener("click", () => select(t.id, false));
+    b.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      const at = tabs.findIndex((x) => x.id === current);
+      const next = tabs[(at + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+      select(next.id, true);
+    });
+    buttons.set(t.id, b);
+    tablist.append(b);
+  }
+
+  const select = (id: string, focus: boolean) => {
+    current = id;
+    for (const t of tabs) {
+      const b = buttons.get(t.id) as HTMLButtonElement;
+      const on = t.id === id;
+      b.setAttribute("aria-selected", String(on));
+      b.tabIndex = on ? 0 : -1;
+      (panels.get(t.id) as HTMLElement).hidden = !on;
+    }
+    if (focus) buttons.get(id)?.focus();
+  };
+
+  const makeBack = () => {
+    const b = el("button", { type: "button" }, "Change server");
+    b.addEventListener("click", () => void AuthService.Back().then(show));
+    return b;
+  };
+
+  // Create account panel.
+  const createPanel = el("div", { role: "tabpanel", id: "panel-create", "aria-labelledby": "tab-create" });
+  let regName: HTMLInputElement | null = null;
+  if (state.registrationOpen) {
+    const name = el("input", { type: "text", id: "reg-name", autocomplete: "name", spellcheck: "false" });
+    const pass = el("input", { type: "password", id: "reg-pass", autocomplete: "new-password", "aria-describedby": "reg-pass-hint" });
+    const device = el("input", { type: "text", id: "reg-device", autocomplete: "off", value: state.deviceName });
+    const go = el("button", { class: "primary", type: "button" }, "Create account");
+    const submit = async () => {
+      const next = await busy(go, "Creating account...", () => AuthService.Register(name.value.trim(), pass.value, device.value));
+      pass.value = "";
+      show(next);
+    };
+    go.addEventListener("click", () => void submit());
+    pass.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") void submit();
+    });
+    regName = name;
+    createPanel.append(
+      el("label", { for: "reg-name" }, "Your name"),
+      name,
+      el("label", { for: "reg-pass" }, "Password"),
+      pass,
+      el("p", { class: "muted", id: "reg-pass-hint" }, "Any password works."),
+      el("label", { for: "reg-device" }, "Name of this computer"),
+      device,
+      el("div", { class: "row" }, go, makeBack()),
+    );
+  } else {
+    createPanel.append(
+      el("p", {}, "Sign-up is closed. To join, ask the admin for an invite link, or sign in if you already have an account."),
+    );
+  }
+
+  // Sign in panel.
+  const signinPanel = el("div", { role: "tabpanel", id: "panel-signin", "aria-labelledby": "tab-signin" });
   const user = el("input", { type: "text", id: "user", autocomplete: "username", spellcheck: "false" });
   const pass = el("input", { type: "password", id: "pass", autocomplete: "current-password" });
   const device = el("input", { type: "text", id: "device", autocomplete: "off", value: state.deviceName });
   const go = el("button", { class: "primary", type: "button" }, "Sign in");
-  const back = el("button", { type: "button" }, "Change server");
-
   const submit = async () => {
     const next = await busy(go, "Signing in...", () => AuthService.Login(user.value.trim(), pass.value, device.value));
     pass.value = "";
@@ -186,20 +288,35 @@ function showLogin(state: ViewState): void {
   pass.addEventListener("keydown", (e) => {
     if (e.key === "Enter") void submit();
   });
-  back.addEventListener("click", () => void AuthService.Back().then(show));
-
-  render(
-    el("h1", {}, "Sign in"),
-    el("p", { class: "muted" }, state.serverUrl),
-    notice(state.notice, state.notice.toLowerCase().includes("could not") ? "warn" : "ok"),
-    el("label", { for: "user" }, "Username"),
+  signinPanel.append(
+    el("label", { for: "user" }, "Your name or username"),
     user,
     el("label", { for: "pass" }, "Password"),
     pass,
     el("label", { for: "device" }, "Name of this computer"),
     device,
-    el("div", { class: "row" }, go, back),
+    el("div", { class: "row" }, go, makeBack()),
   );
+
+  panels.set("create", createPanel);
+  panels.set("signin", signinPanel);
+
+  // The closed-sign-up text has no form, so its panel gets its own way back.
+  if (!state.registrationOpen) createPanel.append(el("div", { class: "row" }, makeBack()));
+
+  const title = el("h1", {});
+  const retitle = () => {
+    title.textContent =
+      current === "create" ? (instance ? `Join ${instance}` : "Join this server") : instance ? `Sign in to ${instance}` : "Sign in";
+  };
+  for (const t of tabs) buttons.get(t.id)?.addEventListener("click", retitle);
+  for (const t of tabs) buttons.get(t.id)?.addEventListener("keydown", retitle);
+
+  render(title, el("p", { class: "muted" }, state.address), notice(state.notice, state.notice.toLowerCase().includes("could not") ? "warn" : "ok"), tablist, createPanel, signinPanel);
+  select(current, false);
+  retitle();
+  (current === "create" ? regName : user)?.focus();
+  if (current === "create" && !regName) buttons.get("create")?.focus();
 }
 
 function showDone(state: ViewState): void {

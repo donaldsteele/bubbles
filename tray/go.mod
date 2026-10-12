@@ -7,6 +7,7 @@ toolchain go1.26.9
 require (
 	github.com/wailsapp/wails/v3 v3.0.0-beta.28
 	github.com/zalando/go-keyring v0.2.8
+	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.49.0
 )
 
@@ -25,7 +26,6 @@ require (
 	github.com/vishvananda/netlink v1.2.1-beta.2 // indirect
 	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/tools v0.51.0 // indirect
 )

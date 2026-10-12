@@ -25,10 +25,10 @@ func TestPasswordResetLifecycle(t *testing.T) {
 		t.Errorf("stored code_hash = %x, %v; want SHA-256 of the code", stored, err)
 	}
 
-	// A weak password is rejected without burning the code.
+	// An empty password is rejected without burning the code.
 	var ve *ValidationError
-	if err := e.svc.ResetPassword(e.ctx, code, "1234567890", ""); !errors.As(err, &ve) || ve.Fields["password"] == "" {
-		t.Fatalf("weak password: %v", err)
+	if err := e.svc.ResetPassword(e.ctx, code, "", ""); !errors.As(err, &ve) || ve.Fields["password"] == "" {
+		t.Fatalf("empty password: %v", err)
 	}
 	if err := e.svc.ResetPassword(e.ctx, code, "a brand new passphrase", "192.168.1.9"); err != nil {
 		t.Fatal(err)

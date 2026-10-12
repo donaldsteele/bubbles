@@ -155,8 +155,8 @@ func TestNewerSchemaRefused(t *testing.T) {
 		t.Errorf("err = %v, want ErrSchemaTooNew", err)
 	}
 	var tooNew *SchemaTooNewError
-	if !errors.As(err, &tooNew) || tooNew.DBVersion != 999 || tooNew.MaxVersion != 1 {
-		t.Errorf("err = %#v, want SchemaTooNewError{999, 1}", err)
+	if !errors.As(err, &tooNew) || tooNew.DBVersion != 999 || tooNew.MaxVersion != 3 {
+		t.Errorf("err = %#v, want SchemaTooNewError{999, 2}", err)
 	}
 }
 
@@ -217,5 +217,87 @@ func TestPreMigrationSnapshot(t *testing.T) {
 	var n int
 	if err := sdb.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name = 'extra'`).Scan(&n); err != nil || n != 0 {
 		t.Errorf("snapshot has extra table (n=%d, err=%v)", n, err)
+	}
+}
+
+func TestDisplayKeyMigration(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), FileName)
+	v1 := fstest.MapFS{"0001_init.sql": {Data: initSQL(t)}}
+	db, err := Open(ctx, path, Options{Migrations: v1, Now: fixedClock(testEpoch)})
+	if err != nil {
+		t.Fatalf("Open v1: %v", err)
+	}
+	err = db.Do(ctx, func(tx *Tx) error {
+		_, err := tx.Exec(`INSERT INTO users (id, username, display_name, kind, role, created_at) VALUES ('u1', 'ada', 'Ada', 'human', 'member', 1)`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	db.Close()
+
+	db, err = Open(ctx, path, Options{Now: fixedClock(testEpoch)})
+	if err != nil {
+		t.Fatalf("Open latest: %v", err)
+	}
+	defer db.Close()
+	var key sql.NullString
+	if err := db.Read().QueryRow(`SELECT display_key FROM users WHERE id = 'u1'`).Scan(&key); err != nil || key.Valid {
+		t.Errorf("display_key = %v, %v; want NULL for a pre-existing row", key, err)
+	}
+	var idx string
+	if err := db.Read().QueryRow(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'users_display_key'`).Scan(&idx); err != nil {
+		t.Errorf("users_display_key index: %v", err)
+	}
+}
+
+func TestUpgradeKeepsSignupClosed(t *testing.T) {
+	ctx := context.Background()
+	v1 := fstest.MapFS{"0001_init.sql": {Data: initSQL(t)}}
+	open := func(path string, seed string) *DB {
+		t.Helper()
+		db, err := Open(ctx, path, Options{Migrations: v1, Now: fixedClock(testEpoch)})
+		if err != nil {
+			t.Fatalf("Open v1: %v", err)
+		}
+		if seed != "" {
+			if err := db.Do(ctx, func(tx *Tx) error { _, err := tx.Exec(seed); return err }); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+		}
+		db.Close()
+		db, err = Open(ctx, path, Options{Now: fixedClock(testEpoch)})
+		if err != nil {
+			t.Fatalf("Open latest: %v", err)
+		}
+		t.Cleanup(func() { db.Close() })
+		return db
+	}
+	setting := func(db *DB) (string, bool) {
+		var v string
+		err := db.Read().QueryRow(`SELECT value FROM settings WHERE key = 'open_registration'`).Scan(&v)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v, true
+	}
+	user := `INSERT INTO users (id, username, display_name, kind, role, created_at) VALUES ('u1', 'ada', 'Ada', 'human', 'admin', 1)`
+
+	// An upgraded v0.1.x server with users stays invite-only.
+	if v, ok := setting(open(filepath.Join(t.TempDir(), FileName), user)); !ok || v != "false" {
+		t.Errorf("upgraded server: open_registration = %q (stored %v), want false", v, ok)
+	}
+	// A choice the admin already made is kept.
+	chose := user + `; INSERT INTO settings (key, value) VALUES ('open_registration', 'true')`
+	if v, ok := setting(open(filepath.Join(t.TempDir(), FileName), chose)); !ok || v != "true" {
+		t.Errorf("admin choice: open_registration = %q (stored %v), want true", v, ok)
+	}
+	// A server without users (new, or factory reset) keeps the default.
+	if v, ok := setting(open(filepath.Join(t.TempDir(), FileName), "")); ok {
+		t.Errorf("new server: open_registration stored as %q, want the default", v)
 	}
 }

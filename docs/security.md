@@ -13,7 +13,7 @@ It is not designed for the internet.
 
 | Actor | Protected? | How |
 |---|---|---|
-| **LAN attacker** (someone on the same Wi-Fi) | Yes | All app traffic is HTTPS with a local CA. Source-IP guard refuses non-private clients. Strict CSP, Origin checks and secure cookies. Setup needs a token from the console. Login is rate limited. |
+| **LAN attacker** (someone on the same Wi-Fi) | Partly | All app traffic is HTTPS with a local CA. Source-IP guard refuses non-private clients. Strict CSP, Origin checks and secure cookies. Sign-up is open to anyone on the LAN until it closes, and passwords have no strength rule, so login and sign-up are rate limited, the admin password is generated, and the admin should change it and close sign-up on shared networks. |
 | **Malicious app token** (a leaked or misused integration token) | Yes, limited | Scoped tokens, optional channel allowlist, per-token rate limits, revocation, `last_used_at` and audit entries. A token acts only through its scoped API, and never reaches the reset endpoint. |
 | **Lost or stolen device** | Partly | An admin can end a user's web sessions ("Sign out everywhere"); deactivating the user also revokes their sessions and tray device tokens, so they lose access at once. A single tray device is revoked by its user (signing out in the tray, or the `DELETE /api/v1/me/devices/{id}` API). Anything already on the device (cached messages, downloaded files) stays there until you clear it. Use the device's own lock and encryption. |
 | **Compromised server host** (malware, a root user, someone with physical access to the running machine) | **No** | Out of scope. The host holds the CA key, the database and the files in plaintext. |
@@ -57,6 +57,10 @@ Treat the server as a trusted machine that the chat members trust.
   what the CA may sign **if** a client enforces them. Not every platform or
   browser enforces name constraints on user-installed roots, so do not rely on
   them alone.
+- **Tray refuses unconstrained CAs.** The desktop tray app installs a CA only if
+  its critical name constraints limit it to local names and private IP ranges. A
+  fake `bubbles` server on the network therefore cannot get a certificate trusted
+  for public websites through the tray.
 - **The CA key is the root of trust.** Anyone with the CA private key can make a
   certificate for any name the constraints allow, and then intercept traffic
   from devices that trust the CA. The key is stored with 0600 permissions (or a
@@ -65,18 +69,35 @@ Treat the server as a trusted machine that the chat members trust.
   plaintext.
 - **Fingerprint verification.** Devices should compare the CA SHA-256 fingerprint
   with the one on the server console or admin overview before trusting it. This
-  is the check that protects you from a rogue CA installed by someone else.
+  is the check that protects you from a rogue CA installed by someone else. The
+  tray app shows the same fingerprint at its confirm step.
 - **Bring your own certificate.** `--tls-cert` and `--tls-key` disable local
   issuance and use your own PKI.
 
 ## Authentication
 
 - **Passwords:** argon2id (time 3, memory 64 MiB, 4 threads, 16-byte salt,
-  32-byte key). Minimum 10 characters, maximum 128, and any password in the
-  embedded list of the 10,000 most common passwords is refused. At most four
-  hashes run at once.
+  32-byte key). Any non-empty password up to 128 characters is accepted,
+  including weak ones such as `password1`. There is no common-password list and no
+  strength rule. bubbles is meant for trusted LANs and relies on the login rate
+  limits below. At most four hashes run at once.
+- **Open sign-up.** Sign-up is open by default. Anyone on a private or allowed
+  network can create an account at `/register` with a name and a password, without
+  an invitation. It closes by itself after `registration_window_hours` (default 24)
+  and stays closed across restarts. An admin can reopen it or close it at once.
+  Sign-up attempts are limited to 20 per IP address per hour. This is the intended
+  model for a trusted home or office LAN. On a shared network, close sign-up and
+  add people with invitations or **Add person**.
+- **Admin password.** The first `admin` password is generated at first start (16
+  characters in four groups, for example `k7mq-x4pz-9vbd-h2nc`). It is printed on
+  the console and in `docker logs`, and saved in `<data-dir>/admin-password.txt`,
+  which is owner-only (0600 on Unix; on Windows the data directory's protected DACL
+  applies). The file is deleted when the admin changes the password. Anyone who can
+  read the console output or the data directory can read it, so change it at once.
+  A factory reset creates a new one.
 - **Login errors** are generic. Failed logins are counted in a sliding 15-minute
-  window, per user and per IP address, and then rejected.
+  window: 5 failures per account and 20 per IP address, then further attempts are
+  rejected.
 - **Changing a password** revokes every other session and every device token.
 - **Sessions:** a 256-bit random token in a cookie named `__Host-bubbles_session`
   with `Secure`, `HttpOnly`, `SameSite=Strict` and `Path=/`. Only its SHA-256 hash
@@ -96,8 +117,8 @@ Treat the server as a trusted machine that the chat members trust.
   creates a normal web session. The tray pins the CA fingerprint the user confirmed and
   never re-trusts a changed fingerprint without a new confirmation; the token lives in the
   OS keychain.
-- **Setup:** the first administrator is created only with the one-time setup
-  token from the console (also in `data/setup-token.txt`, 0600).
+- **First administrator:** created at first start with a generated password, as
+  described above.
 - **Deactivation** revokes sessions and tokens immediately and closes live
   connections.
 
@@ -130,7 +151,8 @@ Treat the server as a trusted machine that the chat members trust.
 | Incoming webhook | 30 per minute, burst 10 |
 | Pairing requests | 5 per minute per IP |
 | Pairing polls | 2 per second, burst 20, per IP |
-| Login failures | sliding 15-minute window, per user and per IP |
+| Login failures | 5 per account and 20 per IP address, sliding 15-minute window |
+| Sign-up | 20 per IP address per hour |
 
 Limiter state is capped at 10,000 keys.
 
@@ -173,7 +195,7 @@ outbound request is Web Push, and that goes through a guard:
 
 ## Web Push privacy
 
-Web Push is **off by default** and needs internet access from the server.
+Web Push stays disabled until an admin turns it on, and needs internet access from the server.
 When enabled:
 
 - Payloads are encrypted to the device per RFC 8291, so the push service sees
@@ -235,6 +257,8 @@ longer sign anything. See [admin.md](admin.md#reset) for the difference.
 - No end-to-end encryption. The server sees message content.
 - No protection at rest against someone who controls the running host.
 - Name constraints are advisory on some platforms.
+- Sign-up is open to anyone on the LAN until it closes, and weak passwords are
+  accepted. Close sign-up, or use invitations, on any network you do not fully trust.
 - Client isolation on Wi-Fi networks can stop devices from reaching the server
   (and each other); this is a network limit, not a bubbles fault.
 - Binaries are not code-signed. Verify the release with `SHA256SUMS`.

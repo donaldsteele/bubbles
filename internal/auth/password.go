@@ -17,11 +17,8 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// Password length limits, in characters (runes).
-const (
-	MinPasswordLen = 10
-	MaxPasswordLen = 128
-)
+// MaxPasswordLen is the longest accepted password, in characters (runes).
+const MaxPasswordLen = 128
 
 // Params are argon2id parameters.
 type Params struct {
@@ -56,17 +53,13 @@ type PolicyError struct{ Reason string }
 
 func (e *PolicyError) Error() string { return "password " + e.Reason }
 
-// ValidatePassword enforces the password policy: 10 to 128 characters and
-// not one of the 10,000 most common passwords.
+// ValidatePassword enforces the password policy: not empty and at most 128 characters.
 func ValidatePassword(pw string) error {
-	n := utf8.RuneCountInString(pw)
-	switch {
-	case n < MinPasswordLen:
-		return &PolicyError{fmt.Sprintf("must be at least %d characters", MinPasswordLen)}
-	case n > MaxPasswordLen:
+	if pw == "" {
+		return &PolicyError{"is required"}
+	}
+	if n := utf8.RuneCountInString(pw); n > MaxPasswordLen {
 		return &PolicyError{fmt.Sprintf("must be at most %d characters", MaxPasswordLen)}
-	case IsCommonPassword(pw):
-		return &PolicyError{"is too common; choose something less guessable"}
 	}
 	return nil
 }

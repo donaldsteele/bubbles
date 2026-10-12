@@ -22,18 +22,24 @@ export function wireApp(): void {
   };
   setGuardContext(() => ({
     authenticated: session.authenticated,
-    needsSetup: session.needsSetup,
     isAdmin: session.isAdmin,
   }));
 }
 
-/** Checks setup status and an existing session, then marks the app ready. */
+/** Reads GET /status into the session (instance name and whether sign-up is open). */
+export async function refreshStatus(): Promise<void> {
+  const st = await call(api.GET('/status'));
+  session.instanceName = st.instance_name;
+  session.registrationOpen = st.registration_open;
+  session.registrationClosesAt = st.registration_closes_at;
+}
+
+/** Checks the server status and an existing session, then marks the app ready. */
 export async function boot(): Promise<void> {
   settings.setViewer('anon');
   try {
-    const st = await call(api.GET('/setup/status'));
-    session.needsSetup = st.needs_setup;
-    if (!st.needs_setup) await startRealtime();
+    await refreshStatus();
+    await startRealtime();
   } catch {
     // Not signed in, or the server is unreachable: the guards show /login
     // and the banner shows the connection state.
@@ -42,10 +48,9 @@ export async function boot(): Promise<void> {
   }
 }
 
-/** Called after setup, login, invite accept or password reset sign-in. */
+/** Called after login, invite accept or password reset sign-in. */
 export async function completeSignIn(me: Me, next: string | null = null): Promise<void> {
   session.setMe(me);
-  session.needsSetup = false;
   settings.setViewer(me.id);
   try {
     await startRealtime();
@@ -71,7 +76,7 @@ export async function signOut(): Promise<void> {
 export async function retryServer(): Promise<void> {
   connection.retry?.();
   try {
-    await call(api.GET('/setup/status'));
+    await call(api.GET('/status'));
   } catch {
     // the 503 hook keeps the banner up
   }

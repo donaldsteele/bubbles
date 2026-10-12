@@ -25,6 +25,30 @@ func (c *Client) DeviceLogin(ctx context.Context, username, password, deviceName
 	return &out, nil
 }
 
+// DeviceRegister signs a new person up and registers their desktop device in
+// one step (POST /auth/device-register). The client needs no token. It fails
+// with an *APIError: 403 while sign-up is closed, 409 when the name is taken,
+// 429 when this address has tried too often. The result is like DeviceLogin's.
+func (c *Client) DeviceRegister(ctx context.Context, name, password, deviceName string) (*protocol.DeviceLoginResponse, error) {
+	var out protocol.DeviceLoginResponse
+	err := c.do(ctx, http.MethodPost, apiPrefix+"/auth/device-register",
+		protocol.DeviceRegisterRequest{Name: name, Password: password, DeviceName: deviceName}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Status fetches the public server status (GET /status): the instance name
+// and whether sign-up is open. It works without a token.
+func (c *Client) Status(ctx context.Context) (*protocol.ServerStatus, error) {
+	var out protocol.ServerStatus
+	if err := c.do(ctx, http.MethodGet, apiPrefix+"/status", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // HandoffCode asks for a new one-time handoff code (POST
 // /auth/handoff-code); the client must carry a device token.
 func (c *Client) HandoffCode(ctx context.Context) (string, error) {

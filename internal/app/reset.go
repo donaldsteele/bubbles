@@ -85,6 +85,9 @@ func (a *App) Reset(ctx context.Context, req reset.Request) (*reset.Result, erro
 	a.gate.leave()
 	a.logger.Info("reset complete", "mode", string(req.Mode))
 	if req.Mode == reset.ModeFactory {
+		// rebuild bootstrapped the new admin; hand its password to the caller
+		// and the console, then forget it.
+		res.AdminPassword = a.adminPassword
 		a.printFactoryReset(res)
 	}
 	return res, nil
@@ -162,19 +165,20 @@ func (a *App) caFingerprint() string {
 	return st.CAFingerprint
 }
 
-// printFactoryReset tells the console the server is back at setup (the
-// token never goes to the log).
+// printFactoryReset tells the console the server was reset and how to sign
+// in to the new admin account (the password never goes to the log).
 func (a *App) printFactoryReset(res *reset.Result) {
 	w := a.opts.Stderr
-	fmt.Fprintf(w, "\nbubbles was factory reset; open the address below to set it up again\n\n")
+	fmt.Fprintf(w, "\nbubbles was factory reset; sign in with the new admin account\n\n")
 	fmt.Fprintf(w, "  %-16s %s\n", "Open:", a.URLs()[0])
-	fmt.Fprintf(w, "  %-16s %s\n", "Setup token:", res.SetupToken)
+	fmt.Fprintf(w, "  %-16s %s\n", "Sign in as:", auth.BootstrapAdminUsername)
+	fmt.Fprintf(w, "  %-16s %s\n", "Password:", res.AdminPassword)
 	note := ""
 	if res.CARotated {
 		note = " (new CA: every device must trust it again)"
 	}
 	fmt.Fprintf(w, "  %-16s %s%s\n\n", "CA fingerprint:", a.caFingerprint(), note)
-	a.setupToken = ""
+	a.adminPassword = ""
 }
 
 // resetAPI is the httpapi.Resetter of one generation of services: it checks
@@ -213,7 +217,7 @@ func (r *resetAPI) FactoryReset(ctx context.Context, in httpapi.ResetInput) (pro
 		return protocol.FactoryReset{}, err
 	}
 	return protocol.FactoryReset{
-		SetupToken: res.SetupToken, SetupURL: r.app.URLs()[0],
+		AdminUsername: auth.BootstrapAdminUsername, AdminPassword: res.AdminPassword, SignInURL: r.app.URLs()[0],
 		CARotated: res.CARotated, CAFingerprint: r.app.caFingerprint(),
 	}, nil
 }

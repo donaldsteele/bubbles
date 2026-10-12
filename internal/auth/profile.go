@@ -89,6 +89,13 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, in ProfileIn
 		if len(fields) > 0 {
 			return &ValidationError{Fields: fields}
 		}
+		if in.DisplayName != nil && next.DisplayName != cur.DisplayName {
+			if taken, err := nameTaken(tx, displayKey(next.DisplayName), userID); err != nil {
+				return err
+			} else if taken {
+				return ErrNameTaken
+			}
+		}
 		out = &next
 		if next.DisplayName == cur.DisplayName && next.StatusText == cur.StatusText &&
 			ptrEqual(next.AvatarFileID, cur.AvatarFileID) && bytes.Equal(next.Prefs, cur.Prefs) {
@@ -99,8 +106,8 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, in ProfileIn
 		if next.AvatarFileID != nil {
 			avatar = *next.AvatarFileID
 		}
-		_, err = tx.Exec(`UPDATE users SET display_name = ?, status_text = ?, avatar_file_id = ?, prefs = ? WHERE id = ?`,
-			next.DisplayName, next.StatusText, avatar, string(next.Prefs), userID)
+		_, err = tx.Exec(`UPDATE users SET display_name = ?, display_key = ?, status_text = ?, avatar_file_id = ?, prefs = ? WHERE id = ?`,
+			next.DisplayName, displayKey(next.DisplayName), next.StatusText, avatar, string(next.Prefs), userID)
 		if err != nil {
 			return fmt.Errorf("update profile: %w", err)
 		}

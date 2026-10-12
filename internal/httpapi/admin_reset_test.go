@@ -78,7 +78,7 @@ func (f *fakeResetter) FactoryReset(_ context.Context, in ResetInput) (protocol.
 		return protocol.FactoryReset{}, err
 	}
 	return protocol.FactoryReset{
-		SetupToken: "newtoken", SetupURL: "https://192.168.1.20:28225/",
+		AdminUsername: "admin", AdminPassword: "abcd-efgh-jkmn-pqrs", SignInURL: "https://192.168.1.20:28225/",
 		CARotated: in.RotateCA, CAFingerprint: "sha256:ab",
 	}, nil
 }
@@ -124,7 +124,7 @@ func TestAdminResetRunsBothModes(t *testing.T) {
 	req.RotateCA, req.KeepSettings = true, true
 	rec = admin.do(http.MethodPost, "/api/v1/admin/reset", req)
 	wantStatus(t, rec, http.StatusOK, "")
-	if got := decodeBody[protocol.FactoryReset](t, rec); got.SetupToken != "newtoken" || !got.CARotated || got.CAFingerprint == "" || got.SetupURL == "" {
+	if got := decodeBody[protocol.FactoryReset](t, rec); got.AdminUsername != "admin" || got.AdminPassword != "abcd-efgh-jkmn-pqrs" || !got.CARotated || got.CAFingerprint == "" || got.SignInURL == "" {
 		t.Errorf("factory answer = %+v", got)
 	}
 	calls, inputs := e.reset.snapshot()

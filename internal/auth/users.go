@@ -122,6 +122,13 @@ func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
 // insertUser creates a human account inside tx. The caller has validated the
 // fields; a taken username returns ErrUsernameTaken.
 func insertUser(tx *store.Tx, f newUserFields, role Role, pwHash string) (*User, error) {
+	if f.username == "" {
+		h, err := uniqueHandle(tx, handleBase(f.displayName))
+		if err != nil {
+			return nil, err
+		}
+		f.username = h
+	}
 	var exists int
 	err := tx.QueryRow(`SELECT 1 FROM users WHERE username = ?`, f.username).Scan(&exists)
 	if err == nil {
@@ -130,12 +137,19 @@ func insertUser(tx *store.Tx, f newUserFields, role Role, pwHash string) (*User,
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("check username: %w", err)
 	}
+	if f.uniqueName {
+		if taken, err := nameTaken(tx, f.displayKey, ""); err != nil {
+			return nil, err
+		} else if taken {
+			return nil, ErrNameTaken
+		}
+	}
 	u := &User{
 		ID: tx.NewID(), Username: f.username, DisplayName: f.displayName, Kind: KindHuman,
 		Role: role, Prefs: json.RawMessage("{}"), CreatedAt: tx.Now(),
 	}
-	if _, err := tx.Exec(`INSERT INTO users (id, username, display_name, kind, role, pw_hash, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, u.ID, u.Username, u.DisplayName, u.Kind, string(u.Role), pwHash, u.CreatedAt); err != nil {
+	if _, err := tx.Exec(`INSERT INTO users (id, username, display_name, display_key, kind, role, pw_hash, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, u.ID, u.Username, u.DisplayName, f.displayKey, u.Kind, string(u.Role), pwHash, u.CreatedAt); err != nil {
 		return nil, fmt.Errorf("insert user: %w", err)
 	}
 	return u, nil

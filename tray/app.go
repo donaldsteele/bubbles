@@ -29,7 +29,7 @@ const (
 
 // flow is one pass through the sign-in screens.
 type flow struct {
-	screen        string // "server", "confirm" or "login"
+	screen        string // "server", "confirm" or "account"
 	notice        string
 	serverURL     string
 	onboardingURL string
@@ -40,6 +40,11 @@ type flow struct {
 	// reconfirm: the user is already signed in and the pinned CA no longer
 	// matches; confirming re-pins and reconnects instead of signing in again.
 	reconfirm bool
+	// instance is the server's instance name, from discovery or /status.
+	instance string
+	// registrationOpen and defaultTab are filled when the account screen opens.
+	registrationOpen bool
+	defaultTab       string
 }
 
 // trayApp is the tray application: it owns the config, the connection
@@ -508,7 +513,7 @@ func clientError(err error) string {
 	var api *bubblesclient.APIError
 	switch {
 	case errors.As(err, &api) && api.Status == http.StatusUnauthorized:
-		return "Invalid username or password."
+		return "Name or password is incorrect."
 	case errors.As(err, &api) && api.Status == http.StatusTooManyRequests:
 		if api.RetryAfter > 0 {
 			return fmt.Sprintf("Too many attempts. Try again in %d minutes.", int(api.RetryAfter.Minutes())+1)

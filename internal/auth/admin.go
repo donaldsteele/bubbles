@@ -142,3 +142,52 @@ func (s *Service) RevokeAllSessions(ctx context.Context, actor audit.Actor, user
 		return err
 	})
 }
+
+// AdminCreateUserInput is the input of AdminCreateUser.
+type AdminCreateUserInput struct {
+	Name     string
+	Password string
+	// Role defaults to member.
+	Role Role
+}
+
+// AdminCreateUser creates a human account for an admin ("Add person"). It is
+// not gated by the sign-up window or the sign-up rate limit. A taken name is
+// ErrNameTaken.
+func (s *Service) AdminCreateUser(ctx context.Context, actor audit.Actor, in AdminCreateUserInput) (*User, error) {
+	if in.Role == "" {
+		in.Role = RoleMember
+	}
+	f, verr := validateNewName(in.Name, in.Password)
+	if !in.Role.Valid() {
+		if verr == nil {
+			verr = &ValidationError{Fields: map[string]string{}}
+		}
+		verr.Fields["role"] = "must be admin, member or guest"
+	}
+	if verr != nil {
+		return nil, verr
+	}
+	pwHash, err := s.hasher.Hash(ctx, f.password)
+	if err != nil {
+		return nil, err
+	}
+	var out *User
+	err = s.db.Do(ctx, func(tx *store.Tx) error {
+		u, err := insertUser(tx, f, in.Role, pwHash)
+		if err != nil {
+			return err
+		}
+		if err := s.userCreated(ctx, tx, u.ID); err != nil {
+			return err
+		}
+		out = u
+		_, err = audit.Write(tx, actor.Entry(audit.ActionUserCreate, "user", u.ID,
+			map[string]any{"username": u.Username, "role": u.Role}))
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}

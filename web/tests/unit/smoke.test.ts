@@ -16,7 +16,7 @@ describe('routes', () => {
 
   it('Login labels its fields', () => {
     render(Login);
-    expect(screen.getByLabelText('Username')).toBeTruthy();
+    expect(screen.getByLabelText('Your name or username')).toBeTruthy();
     expect(screen.getByLabelText('Password')).toBeTruthy();
   });
 });

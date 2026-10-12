@@ -31,7 +31,6 @@ const (
 	StepOpenDB          = "open-db"
 	StepRestoreSettings = "restore-settings"
 	StepVAPID           = "vapid"
-	StepSetupToken      = "setup-token"
 	StepRestart         = "restart"
 )
 
@@ -77,7 +76,6 @@ func (r *runner) steps() []step {
 	}
 	return append(out,
 		step{StepVAPID, newVAPID},
-		step{StepSetupToken, newSetupToken},
 		step{StepAudit, auditFactory},
 		step{StepRestart, restart},
 	)
@@ -213,7 +211,7 @@ func deleteDB(_ context.Context, r *runner) error {
 }
 
 func deleteSecrets(_ context.Context, r *runner) error {
-	return removeFiles(r.dataDir, push.VAPIDFile, auth.SetupTokenFile)
+	return removeFiles(r.dataDir, push.VAPIDFile, auth.AdminPasswordFile)
 }
 
 func wipeLogs(_ context.Context, r *runner) error {
@@ -259,15 +257,6 @@ func restoreSettingsStep(ctx context.Context, r *runner) error {
 func newVAPID(_ context.Context, r *runner) error {
 	_, err := push.LoadOrCreateVAPID(r.dataDir)
 	return err
-}
-
-func newSetupToken(_ context.Context, r *runner) error {
-	token, err := auth.WriteSetupToken(r.dataDir)
-	if err != nil {
-		return err
-	}
-	r.token = token
-	return nil
 }
 
 // auditFactory writes the first row of the new audit log. It names no

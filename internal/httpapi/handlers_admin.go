@@ -50,7 +50,9 @@ func registerAdminRoutes(mux *http.ServeMux, d Deps) {
 	mux.Handle("GET "+p+"/overview", admin(h.overview))
 	mux.Handle("GET "+p+"/settings", admin(h.getSettings))
 	mux.Handle("PATCH "+p+"/settings", admin(h.patchSettings))
+	mux.Handle("POST "+p+"/registration", admin(h.registration))
 	mux.Handle("GET "+p+"/users", admin(h.listUsers))
+	mux.Handle("POST "+p+"/users", admin(h.createUser))
 	mux.Handle("PATCH "+p+"/users/{id}", admin(h.updateUser))
 	mux.Handle("POST "+p+"/users/{id}/password-reset", admin(h.passwordReset))
 	mux.Handle("DELETE "+p+"/users/{id}/sessions", admin(h.revokeSessions))
@@ -151,22 +153,27 @@ func nonNil(s []string) []string {
 	return s
 }
 
-func adminSettingsFrom(v settings.Values) protocol.AdminSettings {
+func adminSettingsFrom(v settings.Values, now time.Time) protocol.AdminSettings {
 	cidrs := make([]string, 0, len(v.AllowedCIDRs))
 	for _, p := range v.AllowedCIDRs {
 		cidrs = append(cidrs, p.String())
 	}
-	return protocol.AdminSettings{
+	out := protocol.AdminSettings{
 		InstanceName: v.InstanceName, OpenRegistration: v.OpenRegistration, UploadMaxBytes: v.UploadMaxBytes,
 		UserQuotaBytes: v.UserQuotaBytes, DiskReserveBytes: v.DiskReserveBytes, DefaultRetentionDays: v.DefaultRetentionDays,
 		WebPushEnabled: v.WebPushEnabled, PushPayload: v.PushPayload, AllowedCIDRs: cidrs,
 		SessionIdleDays: v.SessionIdleDays, AlertRenotifyS: v.AlertRenotifyS, MDNSEnabled: v.MDNSEnabled,
-		WebResetEnabled: v.WebResetEnabled,
+		WebResetEnabled: v.WebResetEnabled, RegistrationWindowH: v.RegistrationWindowH, RegistrationOpen: v.RegistrationOpen(now),
 	}
+	if v.OpenRegistrationEnds != nil {
+		t := protocol.FormatTime(v.OpenRegistrationEnds.UnixMilli())
+		out.OpenRegistrationUntil = &t
+	}
+	return out
 }
 
 func (h adminAPI) getSettings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, adminSettingsFrom(h.auth.Settings().Values()))
+	writeJSON(w, http.StatusOK, adminSettingsFrom(h.auth.Settings().Values(), h.auth.Now()))
 }
 
 // patchSettings validates every given key, then stores them all or none.
@@ -188,6 +195,10 @@ func (h adminAPI) patchSettings(w http.ResponseWriter, r *http.Request) {
 			fields[k] = "unknown setting"
 			continue
 		}
+		if k == settings.KeyOpenRegistrationEnds {
+			fields[k] = "set it with POST /admin/registration"
+			continue
+		}
 		if err := settings.Validate(k, raw); err != nil {
 			fields[k] = strings.TrimPrefix(err.Error(), settings.ErrInvalid.Error()+": ")
 		}
@@ -197,11 +208,53 @@ func (h adminAPI) patchSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := h.auth.Settings()
-	if err := st.SetMany(r.Context(), auditActorFrom(r), req); err != nil {
+	if err := st.SetManyAt(r.Context(), auditActorFrom(r), h.auth.Now(), req); err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, adminSettingsFrom(st.Values()))
+	writeJSON(w, http.StatusOK, adminSettingsFrom(st.Values(), h.auth.Now()))
+}
+
+// registration answers POST /admin/registration: reopen starts a new sign-up
+// window, close ends sign-up now.
+func (h adminAPI) registration(w http.ResponseWriter, r *http.Request) {
+	var req protocol.RegistrationActionRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	st := h.auth.Settings()
+	var err error
+	switch req.Action {
+	case protocol.RegistrationReopen:
+		err = st.ReopenRegistration(r.Context(), auditActorFrom(r), h.auth.Now())
+	case protocol.RegistrationClose:
+		err = st.CloseRegistration(r.Context(), auditActorFrom(r))
+	default:
+		WriteFieldErrors(w, http.StatusBadRequest, CodeBadRequest, "one or more fields are invalid",
+			map[string]string{"action": "must be reopen or close"})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, adminSettingsFrom(st.Values(), h.auth.Now()))
+}
+
+// createUser answers POST /admin/users ("Add person").
+func (h adminAPI) createUser(w http.ResponseWriter, r *http.Request) {
+	var req protocol.AdminCreateUserRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	u, err := h.auth.AdminCreateUser(r.Context(), auditActorFrom(r), auth.AdminCreateUserInput{
+		Name: req.Name, Password: req.Password, Role: auth.Role(req.Role),
+	})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, adminUser(u))
 }
 
 func (h adminAPI) listUsers(w http.ResponseWriter, r *http.Request) {

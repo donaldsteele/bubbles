@@ -49,20 +49,6 @@ test.afterAll(() => {
   });
 });
 
-for (const scheme of schemes) {
-  test(`setup wizard (${scheme})`, async ({ open }) => {
-    const { page } = await open(null, { colorScheme: scheme });
-    await page.goto('/setup');
-    await expect(page.getByRole('heading', { name: 'Set up bubbles' })).toBeVisible();
-    await scan(page, 'setup', scheme);
-    // The error state of the form is part of the screen, too.
-    await page.getByRole('button', { name: 'Create administrator' }).click();
-    await scan(page, 'setup (errors)', scheme);
-    const blocking = summaries.flatMap((s) => s.blocking);
-    expect(blocking).toEqual([]);
-  });
-}
-
 test('seed the server', async ({ server }) => {
   users = await seed(server);
   content = await seedContent(server, users.admin, users.bea, users.cy);
@@ -92,6 +78,20 @@ for (const scheme of schemes) {
     await page.goto('/reset/not-a-real-code');
     await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible();
     await scan(page, 'password reset', scheme);
+
+    const signup = (open: boolean) =>
+      server.must('PATCH', '/api/v1/admin/settings', [200], {
+        as: users.admin,
+        json: { open_registration: open, registration_window_hours: 0 },
+      });
+    await signup(true);
+    await page.goto('/register');
+    await expect(page.getByRole('heading', { name: /^Join / })).toBeVisible();
+    await scan(page, 'register', scheme);
+    await signup(false);
+    await page.goto('/register');
+    await expect(page.getByRole('heading', { name: 'Sign-up is closed.' })).toBeVisible();
+    await scan(page, 'register (closed)', scheme);
 
     await page.goto('/no/such/page');
     await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();

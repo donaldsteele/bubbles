@@ -1,11 +1,11 @@
 import {
   expect,
+  loginAs,
   message,
   openChannel,
   PASSWORD,
   seed,
   send,
-  setupAdminUI,
   test,
   type Page,
   type Seed,
@@ -81,7 +81,7 @@ test('clearing content empties channels in the other context', async ({ server, 
   await expect(message(b.page, 'fresh start')).toBeVisible();
 });
 
-test('factory reset signs everyone out and setup works again', async ({ server, open }) => {
+test('factory reset signs everyone out and a new admin can sign in', async ({ server, open }) => {
   const a = await open(users.admin);
   const b = await open(users.bea);
   await a.page.goto('/');
@@ -97,30 +97,29 @@ test('factory reset signs everyone out and setup works again', async ({ server, 
     server.instance,
   );
 
-  // The admin sees the new setup token once, then starts setup again.
+  // The admin sees the new admin password once, then signs in with it.
   await expect(a.page.getByRole('heading', { name: 'The server was reset' })).toBeVisible({
     timeout: 60_000,
   });
-  const token = await a.page.getByRole('textbox', { name: 'Setup token' }).inputValue();
-  expect(token).toMatch(/^[a-z2-7]{52}$/);
-  expect(token).toBe(server.setupTokenFile());
-  await a.page.getByRole('button', { name: 'Start setup' }).click();
-  await expect(a.page.getByRole('heading', { name: 'Set up bubbles' })).toBeVisible();
+  await expect(a.page.getByText('admin', { exact: true })).toBeVisible();
+  const password = await a.page.getByRole('textbox', { name: 'New admin password' }).inputValue();
+  expect(password.length).toBeGreaterThanOrEqual(12);
+  expect(password).not.toBe(PASSWORD);
+  expect(password).toBe(server.adminPasswordFile());
+  await a.page.getByRole('dialog').getByRole('button', { name: 'Sign in' }).click();
+  await expect(a.page).toHaveURL(/\/login/);
 
   // The other context is signed out and told the server was reset.
   await expect(b.page.getByText('This server was reset.')).toBeVisible({ timeout: 30_000 });
   await b.page.reload();
-  await expect(b.page).toHaveURL(/\/(login|setup)/);
+  await expect(b.page).toHaveURL(/\/login/);
   const old = await server.api('GET', '/api/v1/me', { as: users.bea });
   expect(old.status).toBe(401);
 
-  // Setup with the new token creates a fresh administrator.
-  await setupAdminUI(a.page, token, {
-    instance: 'After Reset',
-    username: 'admin2',
-    password: PASSWORD,
-  });
+  // The new password signs in the fresh administrator.
+  await loginAs(a.page, { username: 'admin', password });
   await expect(a.page.getByRole('navigation', { name: 'Channels' })).toBeVisible();
-  const status = await server.api('GET', '/api/v1/setup/status', { as: null });
-  expect(JSON.stringify(status.json)).toContain('false');
+  const status = await server.api('GET', '/api/v1/status', { as: null });
+  expect(status.status).toBe(200);
+  expect(status.json.instance_name).toBe('bubbles');
 });

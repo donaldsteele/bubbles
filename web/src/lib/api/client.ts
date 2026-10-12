@@ -68,7 +68,7 @@ export const apiHooks: ApiHooks = {
 };
 
 // Endpoints where 401 means "wrong credentials", not "session expired".
-const PUBLIC_PREFIXES = ['/auth/', '/setup', '/invites/', '/register', '/password-resets/'];
+const PUBLIC_PREFIXES = ['/auth/', '/status', '/invites/', '/register', '/password-resets/'];
 
 export function isResetting(err: ApiError): boolean {
   return err.status === 503 && (err.code === 'resetting' || err.code === 'unavailable');

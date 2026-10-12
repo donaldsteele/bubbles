@@ -29,17 +29,17 @@ func (h *userHook) run(_ context.Context, tx *store.Tx, userID string) error {
 	return h.err
 }
 
-// createHuman creates one human account through path: "setup", "invite" or
+// createHuman creates one human account through path: "bootstrap", "invite" or
 // "register".
 func createHuman(e *testEnv, path string) (*SessionResult, error) {
 	e.t.Helper()
 	switch path {
-	case "setup":
-		token, err := e.svc.InitSetup(e.ctx)
+	case "bootstrap":
+		pw, err := e.svc.BootstrapAdmin(e.ctx)
 		if err != nil {
-			e.t.Fatal(err)
+			return nil, err
 		}
-		return e.svc.Setup(e.ctx, goodSetup(token))
+		return e.login(BootstrapAdminUsername, pw)
 	case "invite":
 		_, code, err := e.svc.CreateInvite(e.ctx, audit.Console, CreateInviteInput{})
 		if err != nil {
@@ -50,13 +50,13 @@ func createHuman(e *testEnv, path string) (*SessionResult, error) {
 		if err := e.settings.Set(e.ctx, audit.System, settings.KeyOpenRegistration, true); err != nil {
 			e.t.Fatal(err)
 		}
-		return e.svc.Register(e.ctx, RegisterInput{Username: "sam", Password: goodPassword, UserAgent: "test-agent", IP: "192.168.1.3"})
+		return e.svc.Register(e.ctx, RegisterInput{Name: "sam", Password: goodPassword, UserAgent: "test-agent", IP: "192.168.1.3"})
 	}
 	e.t.Fatalf("unknown path %q", path)
 	return nil, nil
 }
 
-var humanCreationPaths = []string{"setup", "invite", "register"}
+var humanCreationPaths = []string{"bootstrap", "invite", "register"}
 
 func TestOnUserCreatedRunsInEveryHumanCreation(t *testing.T) {
 	for _, path := range humanCreationPaths {

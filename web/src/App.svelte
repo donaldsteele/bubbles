@@ -35,7 +35,7 @@
   import NotFound from './routes/NotFound.svelte';
   import PasswordReset from './routes/PasswordReset.svelte';
   import Placeholder from './routes/Placeholder.svelte';
-  import Setup from './routes/Setup.svelte';
+  import Register from './routes/Register.svelte';
 
   let route = $state<Route>(currentRoute());
 
@@ -73,7 +73,6 @@
   // Sign-in and sign-out change what the current URL may show.
   $effect(() => {
     void session.authenticated;
-    void session.needsSetup;
     if (session.ready) revalidate();
   });
 
@@ -98,7 +97,7 @@
   }
 
   const publicPage = $derived(
-    ['setup', 'login', 'invite', 'reset', 'notfound'].includes(route.name) ||
+    ['login', 'register', 'invite', 'reset', 'notfound'].includes(route.name) ||
       !session.authenticated,
   );
 </script>
@@ -113,10 +112,10 @@
   <p class="visually-hidden" role="status">{t.app.loading}</p>
 {:else if publicPage}
   <ConnectionBanner />
-  {#if route.name === 'setup'}
-    <Setup />
-  {:else if route.name === 'login'}
+  {#if route.name === 'login'}
     <Login />
+  {:else if route.name === 'register'}
+    <Register />
   {:else if route.name === 'invite'}
     <InviteAccept code={route.params.code ?? ''} />
   {:else if route.name === 'reset'}

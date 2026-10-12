@@ -76,18 +76,6 @@ shipped bundle contains the runtime code of `svelte` and nothing else from this 
 | workbox-precaching / workbox-routing / workbox-strategies | 7.4.1 | dev (bundled into sw.js) | MIT | App-shell precache, route matching and CacheFirst / NetworkOnly strategies in the service worker |
 | @resvg/resvg-js | 2.6.2 | dev | MPL-2.0 | `web/scripts/gen-icons.mjs` renders `src/assets/logo.svg` to the committed PNG icons in `web/public/icons/` |
 
-## Embedded data
-
-| File | Source | License | Purpose |
-|------|--------|---------|---------|
-| `internal/auth/commonpw.txt.gz` | SecLists `Passwords/Common-Credentials/10k-most-common.txt`, <https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10k-most-common.txt> (Daniel Miessler et al.) | MIT (<https://github.com/danielmiessler/SecLists/blob/master/LICENSE>) | The 10,000 most common passwords (`internal/auth/commonpw.go`); passwords on the list are rejected, case-insensitively |
-| `internal/auth/commonpw_long.txt.gz` | SecLists `Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt` (NCSC list), <https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt> | MIT (<https://github.com/danielmiessler/SecLists/blob/master/LICENSE>) | The entries of at least 10 bytes (9,307 lines) of the NCSC list, the only ones the 10-character minimum can reach; rejected case-insensitively together with the 10k list |
-
-- SHA-256 of the downloaded source file: `68782d6a4a19a4768d5f15dd66bd534e7a33055cc755411e33f16d18c50fdcce` (10,001 lines, 10,001 entries, LF line endings)
-- Stored as `gzip -9n` of that file; SHA-256 of `commonpw.txt.gz`: `812c15cab0f4c3876b900066f4f3112022d44b1588db9cecba84873082a31d9c`
-- To refresh: download the file again, gzip it with `gzip -9nc`, replace `commonpw.txt.gz` and update both hashes here.
-- `commonpw_long.txt.gz`: SHA-256 of the downloaded NCSC source `c2e5696882c603b76bb67a47ee970897e5a76fc4c3f5547abe3d0ca340c576e0` (99,840 lines); derived with `tr -d '\r' | awk 'length($0)>=10' | sort -u | gzip -9 -n`; SHA-256 of the filtered text `22180a12ef023b170207675b813234b03950e5fb1a6aa1a5b213e1d5b4d405cc`; SHA-256 of the `.gz` `7496150d4610168d35a55a5ed794175832d39cb059c427a1497fb57e2a907f03` (see `internal/auth/COMMONPW_SOURCES.txt`).
-
 ## Web fonts
 
 `web/src/assets/fonts/` holds Latin-subset woff2 files copied from netdiag (`web/vendor/fonts`): Inter Variable (`@fontsource-variable/inter` 5.3.0) and JetBrains Mono 400/700 (`@fontsource/jetbrains-mono` 5.3.0), both SIL OFL 1.1 (`OFL-Inter.txt`, `OFL-JetBrainsMono.txt` alongside). Served from the same origin; no CDN.

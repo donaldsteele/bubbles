@@ -39,7 +39,7 @@ type fixture struct {
 // seed builds a data directory with users, a session, an app and its token,
 // a channel, messages (a thread reply and an alert among them), mentions,
 // reactions, pins, files and blobs, attachments, events, settings, audit
-// rows, logs, backups, spool files, VAPID keys, a setup token and a CA.
+// rows, logs, backups, spool files, VAPID keys, an admin password file and a CA.
 func seed(t *testing.T, blobs int) fixture {
 	t.Helper()
 	ctx := context.Background()
@@ -127,6 +127,7 @@ func seed(t *testing.T, blobs int) fixture {
 	if _, err := push.LoadOrCreateVAPID(dir); err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, filepath.Join(dir, auth.AdminPasswordFile), "password: stale")
 	f.vapid = readFile(t, filepath.Join(dir, push.VAPIDFile))
 	ca, err := tlsca.NewCA(tlsca.CAOptions{InstanceName: "party", Hostname: "host"})
 	if err != nil {
@@ -306,17 +307,15 @@ func checkFactory(t *testing.T, f fixture, res *Result, rotate, keep bool) {
 	if n := count(t, db, `SELECT count(*) FROM settings`); n != wantSettings {
 		t.Errorf("settings: %d rows, want %d", n, wantSettings)
 	}
-	awaiting, err := AwaitingSetup(context.Background(), db)
-	if err != nil || !awaiting {
-		t.Errorf("AwaitingSetup = %v, %v", awaiting, err)
+	if n := count(t, db, `SELECT count(*) FROM users`); n != 0 {
+		t.Errorf("%d users after the reset, want none (the server bootstraps the admin)", n)
 	}
 	db.Close()
 	if bytes.Equal(readFile(t, filepath.Join(f.dir, push.VAPIDFile)), f.vapid) {
 		t.Error("VAPID keys were not replaced")
 	}
-	token := strings.TrimSpace(string(readFile(t, filepath.Join(f.dir, auth.SetupTokenFile))))
-	if res != nil && (token == "" || token != res.SetupToken) {
-		t.Errorf("setup token file %q, result %q", token, res.SetupToken)
+	if _, err := os.Stat(filepath.Join(f.dir, auth.AdminPasswordFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("admin password file survived: %v", err)
 	}
 	for _, sub := range []string{config.DirLogs, config.DirBackups, config.DirTmp, config.DirFiles} {
 		if names := entries(t, filepath.Join(f.dir, sub)); len(names) != 0 {
@@ -340,7 +339,7 @@ func TestResetClearContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Mode != ModeContent || res.Epoch != 2 || res.SetupToken != "" {
+	if res.Mode != ModeContent || res.Epoch != 2 {
 		t.Errorf("result = %+v", res)
 	}
 	checkContentCleared(t, f)
@@ -369,7 +368,7 @@ func TestResetFactory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if res.Mode != ModeFactory || res.CARotated != tc.rotate || len(res.SetupToken) != 52 {
+			if res.Mode != ModeFactory || res.CARotated != tc.rotate {
 				t.Errorf("result = %+v", res)
 			}
 			checkFactory(t, f, res, tc.rotate, tc.keep)
@@ -549,9 +548,6 @@ func TestResetPreviewAndDeniedAudit(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT detail FROM audit_log WHERE action = ?`, ActionResetDenied).Scan(&detail); err != nil ||
 		detail != `{"mode":"factory","reason":"password"}` {
 		t.Errorf("denied audit detail = %s, %v", detail, err)
-	}
-	if awaiting, err := AwaitingSetup(context.Background(), db); err != nil || awaiting {
-		t.Errorf("AwaitingSetup on a set-up server = %v, %v", awaiting, err)
 	}
 }
 

@@ -1,17 +1,14 @@
 package protocol
 
-// SetupStatus is the body of GET /setup/status.
-type SetupStatus struct {
-	NeedsSetup bool `json:"needs_setup"`
-}
-
-// SetupRequest is the body of POST /setup.
-type SetupRequest struct {
-	SetupToken   string `json:"setup_token"`
-	Username     string `json:"username"`
-	Password     string `json:"password"`
-	DisplayName  string `json:"display_name"`
+// ServerStatus is the body of GET /status, which needs no sign-in: what a
+// client shows before anyone is signed in.
+type ServerStatus struct {
 	InstanceName string `json:"instance_name"`
+	// RegistrationOpen reports whether anyone may sign up right now.
+	RegistrationOpen bool `json:"registration_open"`
+	// RegistrationClosesAt is when open sign-up ends; null when it has no
+	// deadline or is closed.
+	RegistrationClosesAt *string `json:"registration_closes_at"`
 }
 
 // LoginRequest is the body of POST /auth/login.
@@ -20,7 +17,7 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
-// AuthResponse answers every request that starts a session (setup, login,
+// AuthResponse answers every request that starts a session (login,
 // invite accept, register). The session itself travels in the cookie.
 type AuthResponse struct {
 	User Me `json:"user"`
@@ -36,6 +33,8 @@ type InviteInfo struct {
 
 // AcceptInviteRequest is the body of POST /invites/{code}/accept.
 type AcceptInviteRequest struct {
+	// Name is the person's display name; the @handle is derived from it.
+	Name        string `json:"name,omitempty"`
 	Username    string `json:"username"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
@@ -43,9 +42,9 @@ type AcceptInviteRequest struct {
 
 // RegisterRequest is the body of POST /register.
 type RegisterRequest struct {
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	DisplayName string `json:"display_name"`
+	// Name is the person's display name; the @handle is derived from it.
+	Name     string `json:"name"`
+	Password string `json:"password"`
 }
 
 // ResetPasswordRequest is the body of POST /password-resets/{code}.
@@ -86,6 +85,14 @@ var DeviceScopes = []string{ScopeEventsRead, ScopeMessagesRead, ScopeNotify}
 // DeviceLoginRequest is the body of POST /auth/device-login.
 type DeviceLoginRequest struct {
 	Username   string `json:"username"`
+	Password   string `json:"password"`
+	DeviceName string `json:"device_name"`
+}
+
+// DeviceRegisterRequest is the body of POST /auth/device-register: sign up
+// and register the tray device in one step.
+type DeviceRegisterRequest struct {
+	Name       string `json:"name"`
 	Password   string `json:"password"`
 	DeviceName string `json:"device_name"`
 }

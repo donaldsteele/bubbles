@@ -1,6 +1,6 @@
 // The Danger-zone actions. A factory reset signs this tab out (the server
 // closes the socket with 4010 and forgets every session), so its outcome - the
-// new setup token - lives here, outside any page, and App shows it.
+// new admin password - lives here, outside any page, and App shows it.
 import { api, ApiError, call, isResetting, type Schemas } from '../api/client';
 import { t } from '../i18n/en';
 import { holdResetNavigation } from '../reset';
@@ -86,20 +86,20 @@ class ResetFlow {
     }
   }
 
-  /** Closes the result screen (and forgets the setup token). */
+  /** Closes the result screen (and forgets the admin password). */
   dismiss(): void {
     this.factory = null;
     this.error = '';
     this.phase = 'idle';
   }
 
-  /** Where the setup wizard of the reset server is. */
-  setupHref(): string {
-    const base = this.factory?.setup_url;
+  /** Where the sign-in page of the reset server is. */
+  signInHref(): string {
+    const base = this.factory?.sign_in_url;
     try {
-      return base ? new URL('setup', base).href : '/setup';
+      return base ? new URL('login', base).href : '/login';
     } catch {
-      return '/setup';
+      return '/login';
     }
   }
 }

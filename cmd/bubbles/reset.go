@@ -15,7 +15,6 @@ import (
 
 	"github.com/donaldsteele/bubbles/internal/app"
 	"github.com/donaldsteele/bubbles/internal/audit"
-	"github.com/donaldsteele/bubbles/internal/auth"
 	"github.com/donaldsteele/bubbles/internal/config"
 	"github.com/donaldsteele/bubbles/internal/reset"
 	"github.com/donaldsteele/bubbles/internal/settings"
@@ -40,7 +39,7 @@ func resetCmd(ctx context.Context, args []string, opts config.Options, appOpts a
 	fs := flag.NewFlagSet("bubbles reset", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	content := fs.Bool("content", false, "delete every message, file, alert and event; keep accounts, channels, apps and settings")
-	factory := fs.Bool("factory", false, "wipe everything and return to the setup wizard")
+	factory := fs.Bool("factory", false, "wipe everything; the next start creates a new admin password")
 	rotateCA := fs.Bool("rotate-ca", false, "with --factory: destroy the CA and create a new one")
 	keepSettings := fs.Bool("keep-settings", false, "with --factory: keep the server settings")
 	dataDir := fs.String("data-dir", "", "data directory (env "+config.EnvName("data-dir")+")")
@@ -117,8 +116,7 @@ func resetCmd(ctx context.Context, args []string, opts config.Options, appOpts a
 		fmt.Fprintf(stdout, "\nContent cleared (epoch %d). Devices resync when they reconnect.\n", res.Epoch)
 		return exitOK
 	}
-	fmt.Fprintf(stdout, "\nFactory reset complete. Start the server and open it to run setup with this token:\n\n")
-	fmt.Fprintf(stdout, "  %-16s %s\n", "Setup token:", res.SetupToken)
+	fmt.Fprintf(stdout, "\nFactory reset complete. Start the server; it prints a new admin password.\n\n")
 	if ca, err := tlsca.LoadCA(filepath.Join(dir, config.DirTLS)); err == nil {
 		note := ""
 		if res.CARotated {
@@ -126,7 +124,6 @@ func resetCmd(ctx context.Context, args []string, opts config.Options, appOpts a
 		}
 		fmt.Fprintf(stdout, "  %-16s %s%s\n", "CA fingerprint:", ca.Fingerprint(), note)
 	}
-	fmt.Fprintf(stdout, "\n(the token is also in %s until setup completes)\n", filepath.Join(dir, auth.SetupTokenFile))
 	return exitOK
 }
 

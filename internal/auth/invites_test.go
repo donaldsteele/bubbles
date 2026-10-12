@@ -160,7 +160,7 @@ func TestInviteValidation(t *testing.T) {
 		}
 	}
 	_, code, _ := e.svc.CreateInvite(e.ctx, audit.Console, CreateInviteInput{})
-	bad := AcceptInviteInput{Code: code, Username: "A!", Password: "short"}
+	bad := AcceptInviteInput{Code: code, Username: "A!", Password: ""}
 	if _, err := e.svc.AcceptInvite(e.ctx, bad); !errors.As(err, &ve) || ve.Fields["username"] == "" || ve.Fields["password"] == "" {
 		t.Errorf("accept validation: %v", err)
 	}

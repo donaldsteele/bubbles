@@ -86,8 +86,8 @@ func (s *Service) ResetPassword(ctx context.Context, code, newPassword, ip strin
 	if err != nil {
 		return err
 	}
-	return s.db.Do(ctx, func(tx *store.Tx) error {
-		var userID string
+	var userID, username string
+	err = s.db.Do(ctx, func(tx *store.Tx) error {
 		err := tx.QueryRow(`UPDATE password_resets SET used_at = ?
 			WHERE code_hash = ? AND used_at IS NULL AND expires_at > ? RETURNING user_id`,
 			tx.Now(), HashToken(code), tx.Now()).Scan(&userID)
@@ -104,6 +104,9 @@ func (s *Service) ResetPassword(ctx context.Context, code, newPassword, ip strin
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrResetInvalid
 		}
+		if err := tx.QueryRow(`SELECT username FROM users WHERE id = ?`, userID).Scan(&username); err != nil {
+			return fmt.Errorf("load username: %w", err)
+		}
 		if err := RevokeSessionsTx(tx, userID, nil); err != nil {
 			return err
 		}
@@ -113,6 +116,11 @@ func (s *Service) ResetPassword(ctx context.Context, code, newPassword, ip strin
 		_, err = audit.Write(tx, audit.User(userID, ip).Entry(audit.ActionPasswordReset, "user", userID, nil))
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	s.dropAdminPasswordFile(username)
+	return nil
 }
 
 // ChangePasswordInput is the input of ChangePassword.
@@ -173,13 +181,17 @@ func (s *Service) ChangePassword(ctx context.Context, in ChangePasswordInput) er
 	if err != nil {
 		return err
 	}
-	return s.db.Do(ctx, func(tx *store.Tx) error {
+	var username string
+	err = s.db.Do(ctx, func(tx *store.Tx) error {
 		res, err := tx.Exec(`UPDATE users SET pw_hash = ?, must_change_pw = 0 WHERE id = ? AND deactivated_at IS NULL`, newHash, in.UserID)
 		if err != nil {
 			return fmt.Errorf("set password: %w", err)
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrNotFound
+		}
+		if err := tx.QueryRow(`SELECT username FROM users WHERE id = ?`, in.UserID).Scan(&username); err != nil {
+			return fmt.Errorf("load username: %w", err)
 		}
 		if _, err := tx.Exec(`UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL`, tx.Now(), in.UserID); err != nil {
 			return fmt.Errorf("retire resets: %w", err)
@@ -193,4 +205,9 @@ func (s *Service) ChangePassword(ctx context.Context, in ChangePasswordInput) er
 		_, err = audit.Write(tx, audit.User(in.UserID, in.IP).Entry(audit.ActionPasswordChange, "user", in.UserID, nil))
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	s.dropAdminPasswordFile(username)
+	return nil
 }

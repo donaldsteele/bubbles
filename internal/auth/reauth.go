@@ -5,9 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 )
 
 // VerifyPassword re-checks the password of an active account before a
@@ -32,31 +29,4 @@ func (s *Service) VerifyPassword(ctx context.Context, userID, password string) e
 		return ErrWrongPassword
 	}
 	return nil
-}
-
-// AdoptSetupToken is InitSetup for a database a factory reset has just
-// recreated: with no users it keeps the well-formed token already in
-// setup-token.txt (the one the reset handed to the admin or printed on the
-// console) instead of replacing it, and creates one only when the file is
-// missing or malformed. With users it behaves like InitSetup.
-func (s *Service) AdoptSetupToken(ctx context.Context) (string, error) {
-	needs, err := s.NeedsSetup(ctx)
-	if err != nil {
-		return "", err
-	}
-	if !needs || s.dataDir == "" {
-		return s.InitSetup(ctx)
-	}
-	b, err := os.ReadFile(filepath.Join(s.dataDir, SetupTokenFile))
-	if err != nil {
-		return s.NewSetupToken()
-	}
-	token := strings.TrimSpace(string(b))
-	if raw, derr := tokenEncoding.DecodeString(strings.ToUpper(token)); derr != nil || len(raw) != 32 || token != strings.ToLower(token) {
-		return s.NewSetupToken()
-	}
-	s.setupMu.Lock()
-	s.setupHash = HashToken(token)
-	s.setupMu.Unlock()
-	return token, nil
 }

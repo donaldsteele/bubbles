@@ -1,5 +1,5 @@
 // Package auth implements accounts and access control: argon2id passwords
-// with a common-password blocklist, first-run setup, cookie sessions,
+// with no password rules beyond a length cap, the generated first admin, cookie sessions,
 // invites, password-reset links, roles, login and API rate limiting, and the
 // authentication middleware. It owns its SQL; HTTP handlers live in
 // internal/httpapi.

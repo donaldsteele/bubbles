@@ -9,15 +9,15 @@ import {
   type GuardContext,
 } from '../../src/lib/router';
 
-const anon: GuardContext = { authenticated: false, needsSetup: false, isAdmin: false };
-const member: GuardContext = { authenticated: true, needsSetup: false, isAdmin: false };
-const admin: GuardContext = { authenticated: true, needsSetup: false, isAdmin: true };
+const anon: GuardContext = { authenticated: false, isAdmin: false };
+const member: GuardContext = { authenticated: true, isAdmin: false };
+const admin: GuardContext = { authenticated: true, isAdmin: true };
 
 describe('matchRoute', () => {
   it.each([
     ['/', 'home'],
-    ['/setup', 'setup'],
     ['/login', 'login'],
+    ['/register', 'register'],
     ['/invite/abc', 'invite'],
     ['/reset/xyz', 'reset'],
     ['/c/01A', 'channel'],
@@ -45,19 +45,9 @@ describe('guard', () => {
     expect(guard(matchRoute('/'), anon)).toBe('/login');
   });
   it('lets public pages through', () => {
-    for (const p of ['/login', '/invite/x', '/reset/x']) {
+    for (const p of ['/login', '/register', '/invite/x', '/reset/x']) {
       expect(guard(matchRoute(p), anon)).toBeNull();
     }
-  });
-  it('sends everything to /setup while setup is needed', () => {
-    const ctx = { ...anon, needsSetup: true };
-    expect(guard(matchRoute('/login'), ctx)).toBe('/setup');
-    expect(guard(matchRoute('/c/1'), ctx)).toBe('/setup');
-    expect(guard(matchRoute('/setup'), ctx)).toBeNull();
-  });
-  it('keeps /setup unreachable once set up', () => {
-    expect(guard(matchRoute('/setup'), anon)).toBe('/login');
-    expect(guard(matchRoute('/setup'), member)).toBe('/');
   });
   it('redirects signed-in users away from /login', () => {
     expect(guard(matchRoute('/login'), member)).toBe('/');

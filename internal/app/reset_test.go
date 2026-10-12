@@ -43,6 +43,7 @@ func startCheap(t *testing.T, cfg config.Config) *harness {
 	t.Helper()
 	return startWith(t, cfg, func(o *Options) {
 		o.AuthParams = cheapParams
+		o.AdminPassword = ownerPassword
 		// age's default scrypt cost takes over 10 s under the race detector.
 		o.BackupWorkFactor = 10
 	})
@@ -130,26 +131,14 @@ func bearer(token string) func(*http.Request) {
 	}
 }
 
-func setupToken(t *testing.T, dir string) string {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join(dir, auth.SetupTokenFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.TrimSpace(string(b))
-}
-
-// setupOwner completes first-run setup and returns the owner's client and
-// the setup token it used.
-func setupOwner(t *testing.T, h *harness) (*web, string) {
+// signIn signs in as the bootstrapped admin with password and returns the
+// client holding the session.
+func signIn(t *testing.T, h *harness, password string) *web {
 	t.Helper()
 	w := newWeb(t, h)
-	token := setupToken(t, h.app.cfg.DataDir)
-	res, body := w.do(http.MethodPost, "/api/v1/setup", protocol.SetupRequest{
-		SetupToken: token, Username: "owner", Password: ownerPassword, DisplayName: "Owner", InstanceName: instanceName,
-	})
-	if res.StatusCode != http.StatusCreated {
-		t.Fatalf("setup: %d %s", res.StatusCode, body)
+	res, body := w.do(http.MethodPost, "/api/v1/auth/login", protocol.LoginRequest{Username: auth.BootstrapAdminUsername, Password: password})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("login: %d %s", res.StatusCode, body)
 	}
 	for _, c := range res.Cookies() {
 		if c.Name == auth.CookieName {
@@ -159,7 +148,16 @@ func setupOwner(t *testing.T, h *harness) (*web, string) {
 	if w.cookie == nil {
 		t.Fatal("no session cookie")
 	}
-	return w, token
+	return w
+}
+
+// setupOwner signs in as the admin the first start created (startCheap fixes
+// its password to ownerPassword) and names the instance.
+func setupOwner(t *testing.T, h *harness) *web {
+	t.Helper()
+	w := signIn(t, h, ownerPassword)
+	w.want(http.StatusOK, http.MethodPatch, "/api/v1/admin/settings", map[string]string{"instance_name": instanceName})
+	return w
 }
 
 // content is what the reset tests create before resetting.
@@ -292,7 +290,7 @@ func waitTrashGone(t *testing.T, dir string) {
 func TestResetClearContentOverHTTP(t *testing.T) {
 	cfg := testConfig(t)
 	h := startCheap(t, cfg)
-	w, _ := setupOwner(t, h)
+	w := setupOwner(t, h)
 	c := fill(t, w)
 	keep := map[string]int{}
 	for _, table := range []string{"users", "sessions", "channels", "memberships", "apps", "app_tokens", "settings"} {
@@ -357,7 +355,7 @@ func TestResetFactoryOverHTTP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testConfig(t)
 			h := startCheap(t, cfg)
-			w, oldSetupToken := setupOwner(t, h)
+			w := setupOwner(t, h)
 			c := fill(t, w)
 			oldCA := h.app.Certs().CA()
 			oldLeaf := servedLeaf(t, h)
@@ -386,16 +384,19 @@ func TestResetFactoryOverHTTP(t *testing.T) {
 			}
 			wantClose(t, codes, events.CloseServerReset)
 			newCA := h.app.Certs().CA()
-			if len(res.SetupToken) != 52 || res.SetupToken != setupToken(t, cfg.DataDir) || res.CARotated != tc.rotate ||
-				res.CAFingerprint != newCA.Fingerprint() || !strings.HasPrefix(res.SetupURL, "https://127.0.0.1:") {
+			if len(res.AdminPassword) != 19 || res.AdminUsername != "admin" || res.CARotated != tc.rotate ||
+				res.CAFingerprint != newCA.Fingerprint() || !strings.HasPrefix(res.SignInURL, "https://127.0.0.1:") {
 				t.Errorf("answer = %+v", res)
 			}
-			if out := h.stderr.String(); !strings.Contains(out, "factory reset") || !strings.Contains(out, res.SetupToken) {
+			if out := h.stderr.String(); !strings.Contains(out, "factory reset") || !strings.Contains(out, res.AdminPassword) {
 				t.Errorf("console does not show the reset:\n%s", out)
 			}
+			if b := readFile(t, filepath.Join(cfg.DataDir, auth.AdminPasswordFile)); !strings.Contains(b, "password: "+res.AdminPassword) {
+				t.Errorf("admin-password.txt = %q, want the new password", b)
+			}
 
-			// Only the fresh instance row, the first audit row and the kept
-			// settings remain.
+			// Only the fresh instance row, the first audit rows (reset and the new
+			// admin and its sign-up deadline), the new admin with #general and the kept settings remain.
 			if n := dbCount(t, h.app, `SELECT count(*) FROM instance WHERE id != ?`, c.instance); n != 1 {
 				t.Error("no new instance id")
 			}
@@ -404,13 +405,13 @@ func TestResetFactoryOverHTTP(t *testing.T) {
 				detail != fmt.Sprintf(`{"keep_settings":%v,"rotate_ca":%v}`, tc.keep, tc.rotate) {
 				t.Errorf("audit detail = %q, %v", detail, err)
 			}
-			for table, want := range map[string]int{"audit_log": 1, "users": 0, "sessions": 0, "channels": 0, "apps": 0, "app_tokens": 0, "messages": 0, "files": 0, "events": 0, "push_subscriptions": 0} {
+			for table, want := range map[string]int{"audit_log": 3, "users": 1, "sessions": 0, "channels": 1, "apps": 0, "app_tokens": 0, "messages": 0, "files": 0, "push_subscriptions": 0} {
 				if n := dbCount(t, h.app, `SELECT count(*) FROM `+table); n != want {
 					t.Errorf("%s: %d rows, want %d", table, n, want)
 				}
 			}
-			// fill set disk_reserve_bytes; setup set instance_name.
-			if n := dbCount(t, h.app, `SELECT count(*) FROM settings`); (tc.keep && n != 2) || (!tc.keep && n != 0) {
+			// fill set disk_reserve_bytes; setupOwner set instance_name; the new admin bootstrap stores the sign-up deadline.
+			if n := dbCount(t, h.app, `SELECT count(*) FROM settings`); (tc.keep && n != 3) || (!tc.keep && n != 1) {
 				t.Errorf("settings rows = %d", n)
 			}
 			if tc.keep && dbCount(t, h.app, `SELECT count(*) FROM settings WHERE key = 'instance_name' AND value = ?`, `"`+instanceName+`"`) != 1 {
@@ -429,13 +430,13 @@ func TestResetFactoryOverHTTP(t *testing.T) {
 				t.Errorf("files/ = %v", names)
 			}
 
-			// Old credentials are dead; the setup wizard is back.
+			// Old credentials are dead; the new admin signs in, the old password does not.
 			w.want(http.StatusUnauthorized, http.MethodGet, "/api/v1/me", nil)
 			w.want(http.StatusUnauthorized, http.MethodGet, "/api/v1/apps/self", nil, bearer(c.appToken))
 			anon := newWeb(t, h)
-			if b := anon.want(http.StatusOK, http.MethodGet, "/api/v1/setup/status", nil); !strings.Contains(string(b), `"needs_setup":true`) {
-				t.Errorf("setup status = %s", b)
-			}
+			anon.want(http.StatusUnauthorized, http.MethodPost, "/api/v1/auth/login", protocol.LoginRequest{Username: "admin", Password: ownerPassword})
+			fresh := signIn(t, h, res.AdminPassword)
+			fresh.want(http.StatusOK, http.MethodGet, "/api/v1/me", nil)
 
 			// CA kept, or rotated with the old one useless.
 			if !tc.rotate {
@@ -459,18 +460,13 @@ func TestResetFactoryOverHTTP(t *testing.T) {
 				}
 			}
 
-			setup := protocol.SetupRequest{Username: "owner2", Password: ownerPassword, DisplayName: "Owner", InstanceName: "Next"}
-			setup.SetupToken = oldSetupToken
-			anon.want(http.StatusForbidden, http.MethodPost, "/api/v1/setup", setup)
-			setup.SetupToken = res.SetupToken
-			anon.want(http.StatusCreated, http.MethodPost, "/api/v1/setup", setup)
 		})
 	}
 }
 
 func TestResetDeniedAttemptsAreAuditedAndWebResetCanBeDisabled(t *testing.T) {
 	h := startCheap(t, testConfig(t))
-	w, _ := setupOwner(t, h)
+	w := setupOwner(t, h)
 	c := fill(t, w)
 	w.want(http.StatusForbidden, http.MethodPost, "/api/v1/admin/reset",
 		protocol.ResetRequest{Mode: protocol.ResetFactory, Confirm: "test house", Password: ownerPassword})
@@ -508,7 +504,7 @@ func TestResetDeniedAttemptsAreAuditedAndWebResetCanBeDisabled(t *testing.T) {
 
 func TestMaintenanceModeRefusesEverythingButHealthz(t *testing.T) {
 	h := startCheap(t, testConfig(t))
-	w, _ := setupOwner(t, h)
+	w := setupOwner(t, h)
 	h.app.gate.enter()
 
 	res, body := w.do(http.MethodGet, "/api/v1/bootstrap", nil)
@@ -594,7 +590,7 @@ func TestResetRecoveredAtStartup(t *testing.T) {
 		t.Run(string(mode), func(t *testing.T) {
 			cfg := testConfig(t)
 			h := startCheap(t, cfg)
-			w, _ := setupOwner(t, h)
+			w := setupOwner(t, h)
 			c := fill(t, w)
 			h.stop(t)
 			m := &reset.Marker{ID: "01JRECOVERTEST", Mode: mode, Done: []string{}}
@@ -612,25 +608,23 @@ func TestResetRecoveredAtStartup(t *testing.T) {
 			if n := dbCount(t, h2.app, `SELECT count(*) FROM messages`); n != 0 {
 				t.Errorf("%d messages after the recovered reset", n)
 			}
-			anon := newWeb(t, h2)
-			status := string(anon.want(http.StatusOK, http.MethodGet, "/api/v1/setup/status", nil))
 			if mode == reset.ModeContent {
 				if n := dbCount(t, h2.app, `SELECT count(*) FROM instance WHERE id = ? AND epoch = 2`, c.instance); n != 1 {
 					t.Error("epoch not bumped by the recovered clear")
 				}
-				if !strings.Contains(status, `"needs_setup":false`) {
-					t.Errorf("setup status = %s", status)
-				}
+				signIn(t, h2, ownerPassword)
 				return
 			}
 			if n := dbCount(t, h2.app, `SELECT count(*) FROM instance WHERE id != ?`, c.instance); n != 1 {
 				t.Error("no new instance after the recovered factory reset")
 			}
-			if !strings.Contains(status, `"needs_setup":true`) {
-				t.Errorf("setup status = %s", status)
+			// The start after the recovered reset bootstrapped a new admin
+			// (with the password startCheap fixes) and printed it.
+			signIn(t, h2, ownerPassword)
+			if n := dbCount(t, h2.app, `SELECT count(*) FROM users`); n != 1 {
+				t.Errorf("%d users after the recovered factory reset, want the new admin only", n)
 			}
-			token := setupToken(t, cfg.DataDir)
-			waitFor(t, "the banner to show the setup token", func() bool { return strings.Contains(h2.stderr.String(), token) })
+			waitFor(t, "the banner to show the admin password", func() bool { return strings.Contains(h2.stderr.String(), ownerPassword) })
 		})
 	}
 }
@@ -640,7 +634,7 @@ func TestResetRecoveredAtStartup(t *testing.T) {
 func TestResetWith2000FilesReturnsQuickly(t *testing.T) {
 	cfg := testConfig(t)
 	h := startCheap(t, cfg)
-	w, _ := setupOwner(t, h)
+	w := setupOwner(t, h)
 	var owner string
 	if err := currentDB(h.app).Read().QueryRow(`SELECT id FROM users`).Scan(&owner); err != nil {
 		t.Fatal(err)
@@ -703,7 +697,7 @@ func TestResetRefusesConcurrentAndClosed(t *testing.T) {
 
 func TestAdminBackupDownloadsEncryptedArchive(t *testing.T) {
 	h := startCheap(t, testConfig(t))
-	w, _ := setupOwner(t, h)
+	w := setupOwner(t, h)
 	res, body := w.do(http.MethodPost, "/api/v1/admin/backup", protocol.BackupRequest{Passphrase: "a long backup passphrase"})
 	if res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != "application/octet-stream" ||
 		!strings.HasPrefix(res.Header.Get("Content-Disposition"), `attachment; filename="bubbles-`) {

@@ -34,7 +34,7 @@ type Deps struct {
 	AllowedCIDRs func() []netip.Prefix
 	// SPA serves the single-page app files; nil means webui.Handler().
 	SPA http.Handler
-	// Auth serves the setup, login, invite, register, password-reset and
+	// Auth serves the status, login, invite, register, password-reset and
 	// /me endpoints; nil leaves those routes out.
 	Auth *auth.Service
 	// Chat serves the users, channels, DMs, messages, reactions, pins and

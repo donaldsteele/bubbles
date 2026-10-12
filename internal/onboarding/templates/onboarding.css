@@ -41,6 +41,7 @@ code {
   display: inline-block; padding: var(--s2) var(--s4); border-radius: 8px;
   background: var(--accent); color: var(--accent-fg); font-weight: 600; text-decoration: none;
 }
+.button.large { padding: var(--s3) var(--s5); font-size: 1.15em; min-height: 48px; box-sizing: border-box; }
 .button.secondary { background: transparent; color: var(--link); border: 1px solid var(--line); }
 .fingerprint code { display: block; margin-top: var(--s1); padding: var(--s2); letter-spacing: .04em; }
 .label { color: var(--fg-muted); font-size: .9em; }

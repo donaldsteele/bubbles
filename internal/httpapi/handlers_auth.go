@@ -29,7 +29,7 @@ type api struct {
 // apiPrefix is the REST API base path.
 const apiPrefix = "/api/v1"
 
-// registerAuthRoutes adds the setup, auth, invite, register, password-reset
+// registerAuthRoutes adds the status, auth, invite, register, password-reset
 // and /me endpoints. Every route gets, in order: authentication (cookie ->
 // principal, never rejecting), the Origin check, and for routes that need a
 // signed-in user the 401 gate plus the per-session rate limit.
@@ -37,8 +37,7 @@ func registerAuthRoutes(mux *http.ServeMux, d Deps) {
 	a := &api{auth: d.Auth, logger: d.Logger}
 	public, private := routeKinds(d)
 
-	mux.Handle("GET "+apiPrefix+"/setup/status", public(a.setupStatus))
-	mux.Handle("POST "+apiPrefix+"/setup", public(a.setup))
+	mux.Handle("GET "+apiPrefix+"/status", public(a.status))
 	mux.Handle("POST "+apiPrefix+"/auth/login", public(a.login))
 	mux.Handle("POST "+apiPrefix+"/auth/logout", public(a.logout))
 	mux.Handle("GET "+apiPrefix+"/invites/{code}", public(a.inviteInfo))
@@ -76,7 +75,7 @@ func tokenLimiter(d Deps) *auth.BucketLimiter {
 // routes get authentication (cookie or bearer -> principal, never rejecting)
 // and the Origin check; private routes add the 401 gate and the per-session
 // rate limit. Both answer 403 to a valid app token: these are the cookie-only
-// endpoints (setup, auth, invites, register, password resets, /me, push and
+// endpoints (status, auth, invites, register, password resets, /me, push and
 // the admin API). Routes an app may call use appRoute instead.
 func routeKinds(d Deps) (public, private func(http.HandlerFunc) http.Handler) {
 	authn := auth.Middleware(authenticators(d)...)
@@ -132,12 +131,15 @@ func (a *api) fail(w http.ResponseWriter, r *http.Request, err error) {
 		WriteError(w, http.StatusUnauthorized, CodeUnauthorized, "invalid username or password")
 	case errors.Is(err, auth.ErrWrongPassword):
 		WriteFieldErrors(w, http.StatusBadRequest, CodeBadRequest, "the current password is incorrect", map[string]string{"current": "incorrect"})
-	case errors.Is(err, auth.ErrSetupToken):
-		WriteError(w, http.StatusForbidden, CodeForbidden, "invalid setup token")
-	case errors.Is(err, auth.ErrSetupDone):
-		WriteError(w, http.StatusConflict, CodeConflict, "setup has already been completed")
 	case errors.Is(err, auth.ErrUsernameTaken):
 		WriteFieldErrors(w, http.StatusConflict, CodeConflict, "that username is already taken", map[string]string{"username": "already taken"})
+	case errors.Is(err, auth.ErrNameTaken):
+		// PATCH /me edits display_name; signups send name.
+		field := "name"
+		if r.Method == http.MethodPatch {
+			field = "display_name"
+		}
+		WriteFieldErrors(w, http.StatusConflict, CodeConflict, "that name is already taken", map[string]string{field: "already taken"})
 	case errors.Is(err, auth.ErrInviteInvalid), errors.Is(err, auth.ErrResetInvalid), errors.Is(err, auth.ErrNotFound):
 		WriteError(w, http.StatusNotFound, CodeNotFound, notFoundMessage(err))
 	case errors.Is(err, auth.ErrRegistrationClosed):
@@ -206,29 +208,14 @@ func noContent(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *api) setupStatus(w http.ResponseWriter, r *http.Request) {
-	needs, err := a.auth.NeedsSetup(r.Context())
-	if err != nil {
-		a.fail(w, r, err)
-		return
+func (a *api) status(w http.ResponseWriter, _ *http.Request) {
+	v := a.auth.Settings().Values()
+	out := protocol.ServerStatus{InstanceName: v.InstanceName}
+	if out.RegistrationOpen = v.RegistrationOpen(a.auth.Now()); out.RegistrationOpen && v.OpenRegistrationEnds != nil {
+		t := protocol.FormatTime(v.OpenRegistrationEnds.UnixMilli())
+		out.RegistrationClosesAt = &t
 	}
-	writeJSON(w, http.StatusOK, protocol.SetupStatus{NeedsSetup: needs})
-}
-
-func (a *api) setup(w http.ResponseWriter, r *http.Request) {
-	var req protocol.SetupRequest
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	res, err := a.auth.Setup(r.Context(), auth.SetupInput{
-		Token: req.SetupToken, Username: req.Username, Password: req.Password, DisplayName: req.DisplayName,
-		InstanceName: req.InstanceName, UserAgent: r.UserAgent(), IP: clientIP(r),
-	})
-	if err != nil {
-		a.fail(w, r, err)
-		return
-	}
-	startSession(w, res, http.StatusCreated)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (a *api) login(w http.ResponseWriter, r *http.Request) {
@@ -289,7 +276,7 @@ func (a *api) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := a.auth.AcceptInvite(r.Context(), auth.AcceptInviteInput{
-		Code: r.PathValue("code"), Username: req.Username, Password: req.Password, DisplayName: req.DisplayName,
+		Code: r.PathValue("code"), Name: req.Name, Username: req.Username, Password: req.Password, DisplayName: req.DisplayName,
 		UserAgent: r.UserAgent(), IP: clientIP(r),
 	})
 	if err != nil {
@@ -305,8 +292,7 @@ func (a *api) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := a.auth.Register(r.Context(), auth.RegisterInput{
-		Username: req.Username, Password: req.Password, DisplayName: req.DisplayName,
-		UserAgent: r.UserAgent(), IP: clientIP(r),
+		Name: req.Name, Password: req.Password, UserAgent: r.UserAgent(), IP: clientIP(r),
 	})
 	if err != nil {
 		a.fail(w, r, err)

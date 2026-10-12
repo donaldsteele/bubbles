@@ -48,6 +48,8 @@ Your administrator can also export the CA for device management with
    profile, then tap **Install**.
 3. Go to **Settings > General > About > Certificate Trust Settings** and turn on
    full trust for the bubbles CA.
+4. Open the HTTPS address in Safari and tap **Create your account** (your name
+   and a password), or sign in if you already have an account.
 
 iOS needs both steps. Installing the profile alone does not make Safari trust
 the certificate.
@@ -59,6 +61,8 @@ the certificate.
    CA certificate**. Menu names vary by manufacturer; search Settings for
    "CA certificate" if you cannot find it.
 3. Choose `bubbles-ca.crt` from Downloads and confirm.
+4. Open the HTTPS address in Chrome and tap **Create your account** (your name
+   and a password), or sign in if you already have an account.
 
 Some Android Chrome builds cannot resolve `.local` names. Use the numeric
 address from the onboarding page (for example `https://192.168.1.20:28225`) or
@@ -78,6 +82,10 @@ Or in PowerShell:
 Import-Certificate -FilePath "$env:USERPROFILE\Downloads\bubbles-ca.crt" -CertStoreLocation Cert:\CurrentUser\Root
 ```
 
+4. Open the HTTPS address in the browser and click **Create your account** (your
+   name and a password), or sign in if you already have an account. The desktop
+   tray app does steps 1 to 3 for you; see [Desktop: tray app](#desktop-tray-app).
+
 ### macOS
 
 Terminal:
@@ -89,6 +97,8 @@ security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db 
 Or double-click the file, find the certificate in **Keychain Access**, open it,
 expand **Trust**, and set **When using this certificate** to **Always Trust**.
 Restart the browser.
+4. Open the HTTPS address in the browser and click **Create your account** (your
+   name and a password), or sign in if you already have an account.
 
 ### Linux
 
@@ -110,6 +120,9 @@ Download `bubbles-ca.crt`, then:
 - Chrome and Chromium use the system store on most distributions. If they still
   warn, go to **Settings > Privacy and security > Security > Manage certificates**.
 
+Then open the HTTPS address and tap **Create your account** (your name and a
+password), or sign in if you already have an account.
+
 ### Firefox on Linux
 
 Firefox keeps its own certificate store on Linux (Windows and macOS builds use
@@ -118,14 +131,49 @@ the system store by default).
 1. Go to **Settings > Privacy & Security > Certificates > View Certificates >
    Authorities > Import**.
 2. Pick `bubbles-ca.crt` and tick **Trust this CA to identify websites**.
+3. Open the HTTPS address and tap **Create your account** (your name and a
+   password), or sign in if you already have an account.
+
+## Desktop: tray app
+
+The desktop tray app is the easiest way to join a Windows, macOS or Linux
+computer. It installs the certificate for you, so you can skip the per-device
+steps above on that computer.
+
+1. Open the tray app. It looks for bubbles servers on the network and shows a
+   **Join <instance> · <address>** button for each one. You can also type the
+   address.
+2. Check the confirm step. It shows the server name, the address and the
+   certificate fingerprint. Compare the fingerprint with the one on the server
+   console. If they differ, stop.
+3. Confirm. The tray installs the local CA. Windows and macOS show their own
+   prompt to confirm; on Linux the tray shows the steps to follow.
+4. Choose **Create account** and enter your name, a password and a name for this
+   computer. Or choose **Sign in** if you already have an account.
+5. The chat opens in the tray app's window, already signed in.
+
+When sign-up is closed, the **Create account** tab says to ask the admin for an
+invitation link.
+
+The tray only installs a certificate authority whose name limits (critical
+X.509 name constraints) restrict it to local names and private IP addresses. If
+a server offers anything else, the tray refuses it. So a fake "bubbles" on the
+network cannot get a certificate that public websites would trust.
 
 ## Open bubbles
 
 1. Scan the QR code on the onboarding page or on the server with the target
    device, or type the HTTPS address.
-2. If you have an invitation link, open it. It shows the CA step first, then
-   the invitation button and a QR code for `https://…/invite/<code>`.
-3. Sign in, or create your account from the invitation.
+2. Sign in with your name or your @handle and your password, or tap **Create your
+   account** (shown while sign-up is open).
+3. If you have an invitation link, open it. It shows the CA step first, then
+   the invitation button and a QR code for `https://…/invite/<code>`. Create your
+   account from the invitation with your name and a password.
+
+Sign-up is open by default and closes by itself after a set time (a day unless
+the admin changed it). When it is closed, the onboarding page and the sign-up
+page say so and ask you to get an invitation link from the admin. The admin can
+also add you directly.
 
 To install the web app to the home screen, use **Share > Add to Home Screen**
 on iOS, or the browser's install option on Android, Windows, macOS and Linux.
@@ -136,7 +184,7 @@ on iOS, or the browser's install option on Android, Windows, macOS and Linux.
   talking to each other. A device on such a network cannot reach the server at
   all, even though it has the certificate. Join a network without isolation, or
   ask the network operator to turn it off. The server console logs a hint when
-  no other device has connected within ten minutes of setup.
+  no other device has connected within ten minutes of the server's first start.
 - **`.local` does not resolve.** Some networks block multicast DNS, and some
   Android browsers cannot resolve `.local`. Use the numeric address instead
   (for example `https://192.168.1.20:28225`). The QR code always uses the IP

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import FormField from '../../components/forms/FormField.svelte';
-  import { api, call } from '../../lib/api/client';
+  import { api, call, type Schemas } from '../../lib/api/client';
+  import { formatDateTime } from '../../lib/admin/format';
   import {
     settingsBody,
     settingsToForm,
@@ -9,17 +10,79 @@
     type SettingsForm,
   } from '../../lib/admin/validate';
   import { failureFrom } from '../../lib/forms';
-  import { t } from '../../lib/i18n/en';
+  import { fmt, t } from '../../lib/i18n/en';
 
   let form = $state<SettingsForm | null>(null);
   let errors = $state<Record<string, string>>({});
   let formError = $state('');
   let saved = $state(false);
   let saving = $state(false);
+  // Sign-up state the server computes; it is not part of the editable form.
+  let regOpen = $state(false);
+  let regUntil = $state<string | null>(null);
+  let savedWindow = $state(0);
+  let regBusy = $state(false);
+
+  const WINDOWS = [
+    { hours: 1, label: t.admin.window1h },
+    { hours: 4, label: t.admin.window4h },
+    { hours: 24, label: t.admin.window1d },
+    { hours: 72, label: t.admin.window3d },
+    { hours: 0, label: t.admin.windowNever },
+  ];
+
+  function windowLabel(hours: number): string {
+    return (
+      WINDOWS.find((w) => w.hours === hours)?.label ??
+      fmt(t.admin.windowHours, { n: String(hours) })
+    );
+  }
+
+  const signupStatus = $derived(
+    regOpen && regUntil
+      ? fmt(t.admin.signupOpenUntil, { time: formatDateTime(regUntil) })
+      : regOpen
+        ? t.admin.signupOpenForever
+        : t.admin.signupClosed,
+  );
+
+  function adoptRegistration(s: Schemas['AdminSettings']) {
+    regOpen = s.registration_open;
+    regUntil = s.open_registration_until;
+    savedWindow = s.registration_window_hours;
+  }
+
+  /** Reopen or close sign-up right away; only the sign-up fields of the form change. */
+  async function setRegistration(action: 'reopen' | 'close') {
+    if (!form) return;
+    regBusy = true;
+    saved = false;
+    formError = '';
+    try {
+      if (action === 'reopen' && form.registrationWindowHours !== savedWindow) {
+        await call(
+          api.PATCH('/admin/settings', {
+            body: { registration_window_hours: form.registrationWindowHours },
+          }),
+        );
+      }
+      const s = await call(api.POST('/admin/registration', { body: { action } }));
+      form.openRegistration = s.open_registration;
+      form.registrationWindowHours = s.registration_window_hours;
+      adoptRegistration(s);
+    } catch (err) {
+      formError = failureFrom(err).form;
+    } finally {
+      regBusy = false;
+    }
+  }
 
   onMount(() => {
     void call(api.GET('/admin/settings')).then(
-      (s) => (form = settingsToForm(s)),
+      (s) => {
+        form = settingsToForm(s);
+        adoptRegistration(s);
+      },
       (err: unknown) => (formError = failureFrom(err).form),
     );
   });
@@ -35,6 +98,7 @@
     try {
       const s = await call(api.PATCH('/admin/settings', { body: settingsBody(form) }));
       form = settingsToForm(s);
+      adoptRegistration(s);
       saved = true;
     } catch (err) {
       const f = failureFrom(err);
@@ -62,12 +126,50 @@
       />
 
       <fieldset>
-        <legend>{t.admin.settingsAccess}</legend>
+        <legend>{t.admin.settingsSignup}</legend>
+        <p role="status">{signupStatus}</p>
         <label class="inline"
           ><input type="checkbox" bind:checked={form.openRegistration} disabled={saving} />
           {t.admin.openRegistration}</label
         >
         <p class="hint">{t.admin.openRegistrationHint}</p>
+        <label>
+          {t.admin.signupWindow}
+          <select id="set-window" bind:value={form.registrationWindowHours} disabled={saving}>
+            {#if !WINDOWS.some((w) => w.hours === form?.registrationWindowHours)}
+              <option value={form.registrationWindowHours}
+                >{windowLabel(form.registrationWindowHours)}</option
+              >
+            {/if}
+            {#each WINDOWS as w (w.hours)}<option value={w.hours}>{w.label}</option>{/each}
+          </select>
+        </label>
+        {#if errors['registration_window_hours']}<p class="field-error" role="alert">
+            {errors['registration_window_hours']}
+          </p>{/if}
+        <div class="row">
+          <button
+            class="btn"
+            type="button"
+            disabled={saving || regBusy}
+            onclick={() => void setRegistration('reopen')}
+            >{form.registrationWindowHours === 0
+              ? t.admin.reopen
+              : fmt(t.admin.reopenFor, {
+                  length: windowLabel(form.registrationWindowHours),
+                })}</button
+          >
+          <button
+            class="btn"
+            type="button"
+            disabled={saving || regBusy || !regOpen}
+            onclick={() => void setRegistration('close')}>{t.admin.closeNow}</button
+          >
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>{t.admin.settingsAccess}</legend>
         <FormField
           id="set-cidrs-ta"
           label={t.admin.allowedCidrs}

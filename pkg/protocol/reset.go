@@ -5,8 +5,8 @@ const (
 	// ResetContent deletes every message, file, alert and event and bumps
 	// the instance epoch; accounts, channels, apps and settings stay.
 	ResetContent = "content"
-	// ResetFactory wipes everything and returns the server to the setup
-	// wizard under a new instance id.
+	// ResetFactory wipes everything and returns the server to a first
+	// start (new admin account and password) under a new instance id.
 	ResetFactory = "factory"
 )
 
@@ -39,11 +39,12 @@ type ContentCleared struct {
 }
 
 // FactoryReset answers POST /admin/reset with mode "factory": the new
-// one-time setup token, where to use it and the CA devices must trust
-// (CARotated says whether it changed).
+// new admin account, its generated password, where to sign in and the CA
+// devices must trust (CARotated says whether it changed).
 type FactoryReset struct {
-	SetupToken    string `json:"setup_token"`
-	SetupURL      string `json:"setup_url"`
+	AdminUsername string `json:"admin_username"`
+	AdminPassword string `json:"admin_password"`
+	SignInURL     string `json:"sign_in_url"`
 	CARotated     bool   `json:"ca_rotated"`
 	CAFingerprint string `json:"ca_fingerprint"`
 }

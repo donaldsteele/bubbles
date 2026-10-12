@@ -55,14 +55,20 @@ A tour with more screens (alerts, threads, search, invites, reset, phones) is on
 2. Unzip it and run the server on a computer that stays on your network. See
    `HOW-TO-OPEN.txt` for the warnings that Windows (SmartScreen) and macOS
    (Gatekeeper) show for unsigned programs.
-3. Read the console. It prints the setup token and the addresses to open, for
-   example `https://192.168.1.20:28225`.
-4. Open that address in a browser on the server, enter the setup token and create
-   the administrator account.
-5. Add other devices. Open the onboarding page on port 28226 (for example
-   `http://192.168.1.20:28226`), install the local CA once, then scan the QR code
-   or open the address. [docs/onboarding.md](docs/onboarding.md) has the steps
+3. Read the console. It shows the admin account (`admin`) and its generated
+   password, plus the addresses to open, for example `https://192.168.1.20:28225`.
+   The password is also saved in `admin-password.txt` in the data directory.
+4. Open that address in a browser on the server and sign in as `admin` with that
+   password. Then change the password.
+5. Let people join. On a Windows, macOS or Linux computer, use the desktop tray
+   app: it finds the server and lets people create an account. On a phone, open
+   the onboarding page on port 28226 (for example `http://192.168.1.20:28226`),
+   install the local CA once, then tap **Create your account**. Or scan the QR
+   code the admin shows. [docs/onboarding.md](docs/onboarding.md) has the steps
    for iPhone, iPad, Android, Windows, macOS, Linux and Firefox.
+6. Sign-up is open to anyone on your network, and it closes by itself after a
+   day. Reopen it in Admin > Settings whenever you need it, or add people with
+   an invitation link.
 
 The default ports are 28225 (HTTPS) and 28226 (onboarding). Ports 8443 and 8080 are
 used by many other servers and dev tools, so bubbles avoids them: 28225 and 28226 sit in
@@ -97,8 +103,11 @@ Without compose, using a released image:
 ```sh
 docker run -d --name bubbles --network host -v bubbles-data:/data \
   ghcr.io/donaldsteele/bubbles:<version>
-docker logs bubbles          # setup token and addresses
+docker logs bubbles          # admin password and addresses
 ```
+
+The admin password is printed in the container log on first start. It is never
+written to the log files.
 
 Use a bind mount (for example `-v "$PWD/bubbles-data:/data"`) if you want the
 database and files on the host. The container's health check runs
@@ -157,8 +166,10 @@ The admin **Danger zone** (and `bubbles reset` on the console) has two actions:
 
 - **Clear content** deletes messages, files, pictures, alerts and event history.
   It keeps users, channels, apps, webhooks and settings.
-- **Factory reset** wipes everything and returns to the setup wizard with a new
-  setup token. It keeps the CA by default, so devices stay trusted. **Generate new
+- **Factory reset** wipes everything and creates a new `admin` account with a new
+  generated password, shown once on the reset-complete screen and printed on the
+  console. Sign-up opens again for its window. It keeps the CA by default, so
+  devices stay trusted. **Generate new
   CA** destroys the old CA key, and attendees must install the new one.
   **Keep server settings** carries settings over.
 

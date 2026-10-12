@@ -20,6 +20,7 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/donaldsteele/bubbles/internal/auth"
 	"github.com/donaldsteele/bubbles/internal/config"
 	"github.com/donaldsteele/bubbles/internal/store"
 )
@@ -38,7 +39,7 @@ const (
 )
 
 // managed lists the top-level data-directory entries a restore owns.
-var managed = []string{store.FileName, store.FileName + "-wal", store.FileName + "-shm", dirFiles, dirTLS, VAPIDEntry, "setup-token.txt"}
+var managed = []string{store.FileName, store.FileName + "-wal", store.FileName + "-shm", dirFiles, dirTLS, VAPIDEntry, auth.AdminPasswordFile}
 
 // Restore unpacks the archive from r into dataDir. It refuses while a server
 // holds the data-directory lock (error wrapping config.ErrLocked) and when the

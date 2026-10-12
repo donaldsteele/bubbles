@@ -5,7 +5,7 @@
 # HTTP -> HTTPS 308 redirect, then stops the server and cleans up.
 # --backup-roundtrip also backs up, restores and serves the copy;
 # --reset-roundtrip posts a canary message and photo, factory resets the
-# server over the API and checks that the setup wizard is back and that
+# server over the API and checks that a new admin password is issued and that
 # neither canary survives in any file under the data directory.
 # Works on Linux, macOS and Git Bash on Windows.
 set -euo pipefail
@@ -110,14 +110,14 @@ if [ "$mode" = "--backup-roundtrip" ]; then
   origin="https://127.0.0.1:$https_port"
   jar="$tmp/cookies.txt"
   jhdr=(-H "Content-Type: application/json" -H "Origin: $origin")
-  token="$(tr -d '\r\n' <"$tmp/data/setup-token.txt")"
-  [ -n "$token" ] || fail "no setup token"
-  pw="correct-horse-battery-staple-42"
+  pw="$(sed -n 's/^password: //p' "$tmp/data/admin-password.txt" | tr -d '\r\n')"
+  [ -n "$pw" ] || fail "no admin password"
   marker="roundtrip-marker-$$"
 
   curl -fsS --max-time 10 "${curl_tls[@]}" "${jhdr[@]}" -c "$jar" -o /dev/null \
-    -d "{\"setup_token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"instance_name\":\"Smoke\"}" \
-    "$api/setup" || fail "POST /setup"
+    -d "{\"username\":\"admin\",\"password\":\"$pw\"}" "$api/auth/login" || fail "POST /auth/login"
+  curl -fsS --max-time 10 "${curl_tls[@]}" "${jhdr[@]}" -b "$jar" -o /dev/null -X PATCH \
+    -d '{"instance_name":"Smoke"}' "$api/admin/settings" || fail "PATCH /admin/settings"
   chan_json="$(curl -fsS --max-time 10 "${curl_tls[@]}" "${jhdr[@]}" -b "$jar" \
     -d '{"name":"backup-test","kind":"public"}' "$api/channels")" || fail "POST /channels"
   chan="$(printf '%s' "$chan_json" | grep -o '"id":"[^"]*"' | head -n 1 | cut -d'"' -f4)"
@@ -186,9 +186,9 @@ if [ "$mode" = "--reset-roundtrip" ]; then
   jar="$tmp/cookies.txt"
   jhdr=(-H "Content-Type: application/json" -H "Origin: $origin")
   data="$tmp/data"
-  old_token="$(tr -d '\r\n' <"$data/setup-token.txt")"
-  [ -n "$old_token" ] || fail "no setup token"
-  pw="correct-horse-battery-staple-42"
+  old_pw="$(sed -n 's/^password: //p' "$data/admin-password.txt" | tr -d '\r\n')"
+  [ -n "$old_pw" ] || fail "no admin password"
+  pw="$old_pw"
   canary="reset-canary-$-$RANDOM"
   # A 32x1 grayscale PNG stored without compression: its pixel bytes spell
   # photo_canary, and metadata stripping keeps the IDAT chunk verbatim.
@@ -197,8 +197,9 @@ if [ "$mode" = "--reset-roundtrip" ]; then
   printf '%s' "$png_b64" | base64 --decode >"$tmp/photo.png" || fail "decode the test photo"
 
   curl -fsS --max-time 10 "${curl_tls[@]}" "${jhdr[@]}" -c "$jar" -o /dev/null \
-    -d "{\"setup_token\":\"$old_token\",\"username\":\"admin\",\"password\":\"$pw\",\"instance_name\":\"Smoke\"}" \
-    "$api/setup" || fail "POST /setup"
+    -d "{\"username\":\"admin\",\"password\":\"$pw\"}" "$api/auth/login" || fail "POST /auth/login"
+  curl -fsS --max-time 10 "${curl_tls[@]}" "${jhdr[@]}" -b "$jar" -o /dev/null -X PATCH \
+    -d '{"instance_name":"Smoke"}' "$api/admin/settings" || fail "PATCH /admin/settings"
   chan_json="$(curl -fsS --max-time 10 "${curl_tls[@]}" "${jhdr[@]}" -b "$jar" \
     -d '{"name":"reset-test","kind":"public"}' "$api/channels")" || fail "POST /channels"
   chan="$(printf '%s' "$chan_json" | grep -o '"id":"[^"]*"' | head -n 1 | cut -d'"' -f4)"
@@ -216,20 +217,22 @@ if [ "$mode" = "--reset-roundtrip" ]; then
   reset_json="$(curl -fsS --max-time 30 "${curl_tls[@]}" "${jhdr[@]}" -b "$jar" \
     -d "{\"mode\":\"factory\",\"confirm\":\"Smoke\",\"password\":\"$pw\"}" "$api/admin/reset")" ||
     fail "POST /admin/reset"
-  new_token="$(printf '%s' "$reset_json" | grep -o '"setup_token":"[^"]*"' | cut -d'"' -f4)"
-  [ -n "$new_token" ] || fail "no setup token in: $reset_json"
-  [ "$new_token" != "$old_token" ] || fail "the setup token did not change"
-  [ "$new_token" = "$(tr -d '\r\n' <"$data/setup-token.txt")" ] || fail "setup-token.txt does not hold the new token"
+  new_pw="$(printf '%s' "$reset_json" | grep -o '"admin_password":"[^"]*"' | cut -d'"' -f4)"
+  [ -n "$new_pw" ] || fail "no admin password in: $reset_json"
+  [ "$new_pw" != "$old_pw" ] || fail "the admin password did not change"
+  [ "$new_pw" = "$(sed -n 's/^password: //p' "$data/admin-password.txt" | tr -d '\r\n')" ] ||
+    fail "admin-password.txt does not hold the new password"
   case "$reset_json" in
-    *'"ca_rotated":false'*) ;;
+    *'"admin_username":"admin"'*'"ca_rotated":false'*) ;;
     *) fail "unexpected reset answer: $reset_json" ;;
   esac
 
-  status="$(curl -fsS --max-time 10 "${curl_tls[@]}" "$api/setup/status")" || fail "GET /setup/status"
-  case "$status" in
-    *'"needs_setup":true'*) ;;
-    *) fail "setup wizard not back after the reset: $status" ;;
-  esac
+  # The new admin account signs in; the old password no longer does.
+  curl -fsS --max-time 10 "${curl_tls[@]}" "${jhdr[@]}" -o /dev/null \
+    -d "{\"username\":\"admin\",\"password\":\"$new_pw\"}" "$api/auth/login" || fail "sign in with the new admin password"
+  got="$(curl -sS --max-time 10 "${curl_tls[@]}" "${jhdr[@]}" -o /dev/null -w '%{http_code}' \
+    -d "{\"username\":\"admin\",\"password\":\"$old_pw\"}" "$api/auth/login")"
+  [ "$got" = "401" ] || fail "old admin password after the reset: $got, want 401"
   got="$(curl -sS --max-time 10 "${curl_tls[@]}" -b "$jar" -o /dev/null -w '%{http_code}' "$api/me")"
   [ "$got" = "401" ] || fail "old session after the reset: $got, want 401"
 

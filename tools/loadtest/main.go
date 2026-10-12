@@ -283,26 +283,30 @@ func startServer(ctx context.Context, o *options) (*privateServer, error) {
 	return s, nil
 }
 
-// setup completes first-run setup and fills admin with the session.
+// setup signs in as the admin the server created on its first start, using
+// the password in admin-password.txt, and names the instance.
 func (s *privateServer) setup(ctx context.Context, admin *user) error {
-	token, err := os.ReadFile(filepath.Join(s.dataDir, "setup-token.txt"))
+	body, err := os.ReadFile(filepath.Join(s.dataDir, "admin-password.txt"))
 	if err != nil {
 		return err
 	}
-	admin.name, admin.password = "loadadmin", randomPassword()
+	admin.name = "admin"
+	for _, line := range strings.Split(string(body), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "password:"); ok {
+			admin.password = strings.TrimSpace(v)
+		}
+	}
+	if admin.password == "" {
+		return errors.New("no password in admin-password.txt")
+	}
 	a := newAPI(s.base, s.pool, false)
-	set, err := a.call(ctx, "POST", "/api/v1/setup", "", protocol.SetupRequest{
-		SetupToken:   strings.TrimSpace(string(token)),
-		Username:     admin.name,
-		Password:     admin.password,
-		DisplayName:  "Load Admin",
-		InstanceName: "loadtest",
-	}, nil, 201)
+	set, err := a.call(ctx, "POST", "/api/v1/auth/login", "", protocol.LoginRequest{Username: admin.name, Password: admin.password}, nil, 200)
 	if err != nil {
 		return err
 	}
 	admin.cookie = set
-	return nil
+	_, err = a.call(ctx, "PATCH", "/api/v1/admin/settings", admin.cookie, map[string]string{"instance_name": "loadtest"}, nil, 200)
+	return err
 }
 
 // populate creates the channels and users (each joined to one channel).

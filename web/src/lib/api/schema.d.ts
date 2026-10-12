@@ -24,41 +24,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/setup/status': {
+  '/status': {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    /** Whether first-run setup is still pending */
-    get: operations['getSetupStatus'];
+    /**
+     * Public server status
+     * @description Needs no sign-in. Clients read it before anyone is signed in: the instance name and
+     *     whether sign-up is open right now (`registration_open`, `registration_closes_at`).
+     *     Answers `503 resetting` while a reset runs.
+     */
+    get: operations['getStatus'];
     put?: never;
     post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/setup': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Create the first admin account
-     * @description Needs the one-time setup token printed on the server console (also in
-     *     `setup-token.txt` in the data directory). Works exactly once: it creates the
-     *     admin, sets the instance name, signs the admin in and deletes the token.
-     *     Afterwards it answers `409 conflict`. A missing or wrong token is
-     *     `403 forbidden`.
-     */
-    post: operations['completeSetup'];
     delete?: never;
     options?: never;
     head?: never;
@@ -75,8 +56,10 @@ export interface paths {
     get?: never;
     put?: never;
     /**
-     * Sign in with username and password
-     * @description Every failure is the same `401 unauthorized` (no user enumeration). After 5
+     * Sign in with username or name and password
+     * @description `username` may be the @handle or the display name (case-insensitive); a display
+     *     name works only when it matches exactly one active person.
+     *     Every failure is the same `401 unauthorized` (no user enumeration). After 5
      *     failures per username or 20 per IP address within 15 minutes the answer is
      *     `429 rate_limited` with `Retry-After`. A presented session cookie is revoked
      *     and replaced (session rotation).
@@ -127,6 +110,30 @@ export interface paths {
      *     revoked when the password changes or the account is deactivated.
      */
     post: operations['deviceLogin'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/device-register': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Sign up and register a tray device
+     * @description Like `POST /register` (open only while sign-up is open, `403` otherwise; `409` for a
+     *     taken name; `429` after 20 attempts per IP address per hour, shared with
+     *     `POST /register`) but for the tray: it creates the member account and registers a
+     *     device in one step. The device token has the same scopes as one from
+     *     `POST /auth/device-login`.
+     */
+    post: operations['deviceRegister'];
     delete?: never;
     options?: never;
     head?: never;
@@ -221,7 +228,10 @@ export interface paths {
     put?: never;
     /**
      * Self-register a member account
-     * @description Only when the `open_registration` setting is on; otherwise `403 forbidden`.
+     * @description Open only while sign-up is open (`open_registration` on and inside its window; see
+     *     `GET /status`); otherwise `403 forbidden`. Every attempt counts against a limit of 20
+     *     per IP address per hour, shared with `POST /auth/device-register`; over it, `429`.
+     *     A taken name is `409`.
      */
     post: operations['register'];
     delete?: never;
@@ -269,7 +279,8 @@ export interface paths {
     /**
      * Update the caller's profile
      * @description Partial update; omitted fields stay as they are. `display_name` (at most 64
-     *     characters; empty means the username) and `prefs` cannot be null. `status_text`
+     *     characters; empty means the username; unique ignoring case among active people,
+     *     otherwise `409 conflict` with `details.fields.display_name`) and `prefs` cannot be null. `status_text`
      *     (at most 100 characters) null clears the text. `avatar_file_id` must be an image the
      *     caller uploaded with `POST /files` (anything else is `400` with
      *     `details.fields.avatar_file_id`); null removes the avatar. `prefs` replaces the whole
@@ -1438,9 +1449,9 @@ export interface paths {
      *       bumps the instance `epoch`. Accounts, sessions, channels, memberships, apps, tokens,
      *       webhooks, invites and settings stay. Answer: `ContentCleared`.
      *     - `factory` wipes the data directory (database, Web Push keys, logs, backups, uploads)
-     *       and returns the server to the setup wizard under a new `instance_id`. The CA is kept
+     *       and returns the server to a first start under a new `instance_id`. The CA is kept
      *       unless `rotate_ca`; settings are dropped unless `keep_settings`. Answer:
-     *       `FactoryReset`, with the new one-time setup token for the admin who ran it.
+     *       `FactoryReset`, with the new `admin` account and its generated password for the admin who ran it.
      */
     post: operations['resetServer'];
     delete?: never;
@@ -1557,9 +1568,29 @@ export interface paths {
     head?: never;
     /**
      * Change settings
-     * @description Admin only, browser session only. The body holds any of the setting keys; every value is validated first and either all are stored or none (`400` lists the rejected keys in `details.fields`). Audited (`settings.update`).
+     * @description Admin only, browser session only. The body holds any of the setting keys; every value is validated first and either all are stored or none (`400` lists the rejected keys in `details.fields`). Audited (`settings.update`). Switching `open_registration` on starts a new sign-up window and changing `registration_window_hours` while sign-up is open restarts it (both end `registration_window_hours` from now; 0 means no deadline); switching it off clears the deadline. `open_registration_until` is not patchable: the answer reports it; use `POST /admin/registration` to reopen or close.
      */
     patch: operations['updateAdminSettings'];
+    trace?: never;
+  };
+  '/admin/registration': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reopen or close sign-up
+     * @description Admin only, browser session only. `reopen` switches `open_registration` on and starts a new window (`registration_window_hours` from now; no deadline when it is 0). `close` switches it off now. Audited (`registration.open`, `registration.close`).
+     */
+    post: operations['updateAdminRegistration'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   '/admin/users': {
@@ -1575,7 +1606,11 @@ export interface paths {
      */
     get: operations['listAdminUsers'];
     put?: never;
-    post?: never;
+    /**
+     * Add a person
+     * @description Admin only, browser session only. Creates an account with a name and a password the admin hands over; the @handle is derived from the name. Not limited by the sign-up window. `409` when the name is taken. Audited (`user.create`).
+     */
+    post: operations['createAdminUser'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1825,29 +1860,40 @@ export interface components {
       status: 'ok';
       version: string;
     };
-    SetupStatus: {
-      needs_setup: boolean;
-    };
-    SetupRequest: {
-      setup_token: string;
-      username: components['schemas']['Username'];
-      password: components['schemas']['PasswordInput'];
-      display_name?: string;
+    ServerStatus: {
       instance_name: string;
+      /** @description True while anyone may sign up (switched on and inside the window). */
+      registration_open: boolean;
+      /**
+       * Format: date-time
+       * @description When open sign-up ends; null when it has no deadline or is closed.
+       */
+      registration_closes_at: string | null;
     };
     LoginRequest: {
       username: string;
       password: string;
     };
     AcceptInviteRequest: {
-      username: components['schemas']['Username'];
+      /**
+       * @description Your name, as shown to others; the @handle is derived from it. Whitespace is
+       *     trimmed and collapsed; at most 64 characters; unique (ignoring case) among
+       *     active people, otherwise `409 conflict` with `details.fields.name`. When set,
+       *     `username` and `display_name` are ignored.
+       */
+      name?: string;
+      username?: components['schemas']['Username'];
       password: components['schemas']['PasswordInput'];
       display_name?: string;
     };
     RegisterRequest: {
-      username: components['schemas']['Username'];
+      /**
+       * @description Your name, as shown to others; the @handle is derived from it. Whitespace is
+       *     trimmed and collapsed; at most 64 characters; unique (ignoring case) among
+       *     active people, otherwise `409 conflict` with `details.fields.name`.
+       */
+      name: string;
       password: components['schemas']['PasswordInput'];
-      display_name?: string;
     };
     ResetPasswordRequest: {
       password: components['schemas']['PasswordInput'];
@@ -1859,7 +1905,7 @@ export interface components {
     /** @description 2-32 characters of lowercase letters, digits, `.`, `_`, `-` (input is trimmed and lower-cased). */
     Username: string;
     /**
-     * @description Policy: 10-128 characters and not one of the 10,000 most common passwords.
+     * @description Policy: not empty, at most 128 characters.
      *     Violations are `400` with `details.fields`.
      */
     PasswordInput: string;
@@ -1916,6 +1962,13 @@ export interface components {
     DeviceLoginRequest: {
       username: string;
       password: string;
+      /** @description Shown in the device list; at most 64 printable characters after trimming. */
+      device_name: string;
+    };
+    DeviceRegisterRequest: {
+      /** @description Your name, as for `POST /register`. */
+      name: string;
+      password: components['schemas']['PasswordInput'];
       /** @description Shown in the device list; at most 64 printable characters after trimming. */
       device_name: string;
     };
@@ -2526,10 +2579,11 @@ export interface components {
       /** Format: int64 */
       epoch: number;
     };
-    /** @description Answer of a `factory` reset: the one-time setup token (valid until setup completes), the URL of the setup wizard and the fingerprint (SHA-256) devices must trust. */
+    /** @description Answer of a `factory` reset: the new admin account (`admin_username`) with its generated password (shown once; also in `admin-password.txt` until the password changes), the URL to sign in at and the fingerprint (SHA-256) devices must trust. */
     FactoryReset: {
-      setup_token: string;
-      setup_url: string;
+      admin_username: string;
+      admin_password: string;
+      sign_in_url: string;
       ca_rotated: boolean;
       ca_fingerprint: string;
     };
@@ -2557,6 +2611,15 @@ export interface components {
     AdminSettings: {
       instance_name: string;
       open_registration: boolean;
+      /** @description Hours sign-up stays open once switched on; 0 = no deadline. */
+      registration_window_hours: number;
+      /**
+       * Format: date-time
+       * @description Sign-up deadline; null for none. Not patchable.
+       */
+      open_registration_until: string | null;
+      /** @description Computed: switched on and inside the window. */
+      registration_open: boolean;
       /** Format: int64 */
       upload_max_bytes: number;
       /** Format: int64 */
@@ -2577,6 +2640,7 @@ export interface components {
     AdminSettingsPatch: {
       instance_name?: string;
       open_registration?: boolean;
+      registration_window_hours?: number;
       /** Format: int64 */
       upload_max_bytes?: number;
       /** Format: int64 */
@@ -2594,6 +2658,16 @@ export interface components {
     };
     AdminUserList: {
       items: components['schemas']['User'][];
+    };
+    AdminCreateUserRequest: {
+      /** @description The person's name, as for `POST /register`. */
+      name: string;
+      password: components['schemas']['PasswordInput'];
+      role?: components['schemas']['Role'];
+    };
+    RegistrationActionRequest: {
+      /** @enum {string} */
+      action: 'reopen' | 'close';
     };
     /** @description Body of `PATCH /admin/users/{id}`; at least one field. */
     UpdateAdminUserRequest: {
@@ -2729,7 +2803,7 @@ export interface components {
          *         "message": "one or more fields are invalid",
          *         "details": {
          *           "fields": {
-         *             "password": "must be at least 10 characters"
+         *             "password": "is required"
          *           }
          *         }
          *       }
@@ -2747,7 +2821,7 @@ export interface components {
         'application/json': components['schemas']['Error'];
       };
     };
-    /** @description Refused - cross-origin request, source address not allowed, wrong setup token, registration closed, or the caller's role or token may not do this to a resource it can see. */
+    /** @description Refused - cross-origin request, source address not allowed, registration closed, or the caller's role or token may not do this to a resource it can see. */
     Forbidden: {
       headers: {
         [name: string]: unknown;
@@ -2765,7 +2839,7 @@ export interface components {
         'application/json': components['schemas']['Error'];
       };
     };
-    /** @description State conflict - setup already completed, username or channel name taken, archived channel (read-only), or deleted message. */
+    /** @description State conflict - username, display name (`details.fields.name` or `display_name`) or channel name taken, archived channel (read-only), or deleted message. */
     Conflict: {
       headers: {
         [name: string]: unknown;
@@ -2932,7 +3006,7 @@ export interface operations {
       default: components['responses']['Internal'];
     };
   };
-  getSetupStatus: {
+  getStatus: {
     parameters: {
       query?: never;
       header?: never;
@@ -2941,40 +3015,16 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Setup state. */
+      /** @description Server status. */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['SetupStatus'];
+          'application/json': components['schemas']['ServerStatus'];
         };
       };
       403: components['responses']['Forbidden'];
-      503: components['responses']['Unavailable'];
-      default: components['responses']['Internal'];
-    };
-  };
-  completeSetup: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SetupRequest'];
-      };
-    };
-    responses: {
-      201: components['responses']['SessionStarted'];
-      400: components['responses']['BadRequest'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      413: components['responses']['TooLarge'];
-      415: components['responses']['UnsupportedMedia'];
-      429: components['responses']['RateLimited'];
       503: components['responses']['Unavailable'];
       default: components['responses']['Internal'];
     };
@@ -3050,6 +3100,38 @@ export interface operations {
       400: components['responses']['BadRequest'];
       401: components['responses']['Unauthorized'];
       403: components['responses']['Forbidden'];
+      413: components['responses']['TooLarge'];
+      415: components['responses']['UnsupportedMedia'];
+      429: components['responses']['RateLimited'];
+      503: components['responses']['Unavailable'];
+      default: components['responses']['Internal'];
+    };
+  };
+  deviceRegister: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['DeviceRegisterRequest'];
+      };
+    };
+    responses: {
+      /** @description The account and device were created. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeviceLoginResponse'];
+        };
+      };
+      400: components['responses']['BadRequest'];
+      403: components['responses']['Forbidden'];
+      409: components['responses']['Conflict'];
       413: components['responses']['TooLarge'];
       415: components['responses']['UnsupportedMedia'];
       429: components['responses']['RateLimited'];
@@ -3178,6 +3260,7 @@ export interface operations {
       409: components['responses']['Conflict'];
       413: components['responses']['TooLarge'];
       415: components['responses']['UnsupportedMedia'];
+      429: components['responses']['RateLimited'];
       503: components['responses']['Unavailable'];
       default: components['responses']['Internal'];
     };
@@ -3264,6 +3347,7 @@ export interface operations {
       400: components['responses']['BadRequest'];
       401: components['responses']['Unauthorized'];
       403: components['responses']['Forbidden'];
+      409: components['responses']['Conflict'];
       413: components['responses']['TooLarge'];
       415: components['responses']['UnsupportedMedia'];
       429: components['responses']['RateLimited'];
@@ -5517,6 +5601,38 @@ export interface operations {
       default: components['responses']['Internal'];
     };
   };
+  updateAdminRegistration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RegistrationActionRequest'];
+      };
+    };
+    responses: {
+      /** @description The settings after the change. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AdminSettings'];
+        };
+      };
+      400: components['responses']['BadRequest'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      413: components['responses']['TooLarge'];
+      415: components['responses']['UnsupportedMedia'];
+      429: components['responses']['RateLimited'];
+      503: components['responses']['Unavailable'];
+      default: components['responses']['Internal'];
+    };
+  };
   listAdminUsers: {
     parameters: {
       query?: never;
@@ -5537,6 +5653,39 @@ export interface operations {
       };
       401: components['responses']['Unauthorized'];
       403: components['responses']['Forbidden'];
+      429: components['responses']['RateLimited'];
+      503: components['responses']['Unavailable'];
+      default: components['responses']['Internal'];
+    };
+  };
+  createAdminUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AdminCreateUserRequest'];
+      };
+    };
+    responses: {
+      /** @description The new account. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['User'];
+        };
+      };
+      400: components['responses']['BadRequest'];
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      409: components['responses']['Conflict'];
+      413: components['responses']['TooLarge'];
+      415: components['responses']['UnsupportedMedia'];
       429: components['responses']['RateLimited'];
       503: components['responses']['Unavailable'];
       default: components['responses']['Internal'];

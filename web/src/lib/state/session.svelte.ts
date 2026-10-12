@@ -7,8 +7,11 @@ class SessionState {
   instanceId = $state('');
   epoch = $state(0);
   seqHead = $state(0);
-  /** null until GET /setup/status answered. */
-  needsSetup = $state<boolean | null>(null);
+  /** The instance name from GET /status; empty until it answered. */
+  instanceName = $state('');
+  /** Whether self-sign-up is open right now (GET /status). */
+  registrationOpen = $state(false);
+  registrationClosesAt = $state<string | null>(null);
   /** true once the first boot attempt (status + /me) finished. */
   ready = $state(false);
 

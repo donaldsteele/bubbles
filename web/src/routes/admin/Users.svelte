@@ -5,7 +5,8 @@
   import SecretOnce from '../../components/common/SecretOnce.svelte';
   import { api, call, type Schemas } from '../../lib/api/client';
   import { formatDateTime } from '../../lib/admin/format';
-  import { failureFrom } from '../../lib/forms';
+  import FormField from '../../components/forms/FormField.svelte';
+  import { failureFrom, validatePassword, validateRequired } from '../../lib/forms';
   import { fmt, t } from '../../lib/i18n/en';
   import { session } from '../../lib/state/session.svelte';
 
@@ -19,6 +20,14 @@
   let confirm = $state<{ user: User; action: 'deactivate' | 'sessions' } | null>(null);
   const roles: Role[] = ['admin', 'member', 'guest'];
 
+  let addName = $state('');
+  let addPassword = $state('');
+  let addRole = $state<Role>('member');
+  let addErrors = $state<Record<string, string>>({});
+  let addError = $state('');
+  let added = $state('');
+  let adding = $state(false);
+
   async function load() {
     try {
       users = (await call(api.GET('/admin/users'))).items;
@@ -30,6 +39,33 @@
     }
   }
   onMount(() => void load());
+
+  async function addPerson(e: SubmitEvent) {
+    e.preventDefault();
+    addErrors = { name: validateRequired(addName), password: validatePassword(addPassword) };
+    addError = '';
+    added = '';
+    if (addErrors.name || addErrors.password) return;
+    adding = true;
+    try {
+      const u = await call(
+        api.POST('/admin/users', {
+          body: { name: addName.trim(), password: addPassword, role: addRole },
+        }),
+      );
+      added = fmt(t.admin.addedPerson, { name: u.display_name });
+      addName = '';
+      addPassword = '';
+      addRole = 'member';
+      await load();
+    } catch (err) {
+      const f = failureFrom(err);
+      addErrors = f.fields['name'] ? { ...f.fields, name: t.admin.nameTaken } : f.fields;
+      addError = f.form;
+    } finally {
+      adding = false;
+    }
+  }
 
   function replace(u: User) {
     users = users.map((x) => (x.id === u.id ? u : x));
@@ -88,6 +124,43 @@
       <QrImage value={link.url} label={t.admin.qrResetLink} />
     </SecretOnce>
   {/if}
+
+  <form class="form panel" onsubmit={addPerson} novalidate>
+    <h3>{t.admin.addPerson}</h3>
+    <p class="hint">{t.admin.addPersonHint}</p>
+    {#if addError}<p class="form-error" role="alert">{addError}</p>{/if}
+    <FormField
+      id="add-name"
+      label={t.fields.yourName}
+      bind:value={addName}
+      error={addErrors['name']}
+      autocomplete="off"
+      required
+      disabled={adding}
+    />
+    <FormField
+      id="add-password"
+      label={t.fields.password}
+      type="password"
+      bind:value={addPassword}
+      error={addErrors['password']}
+      autocomplete="new-password"
+      required
+      disabled={adding}
+    />
+    <label>
+      {t.admin.role}
+      <select bind:value={addRole} disabled={adding}>
+        {#each ['member', 'guest', 'admin'] as r (r)}<option value={r}>{r}</option>{/each}
+      </select>
+    </label>
+    <div class="row">
+      <button class="btn primary" type="submit" disabled={adding}
+        >{adding ? t.common.submitting : t.admin.addPerson}</button
+      >
+      {#if added}<span role="status">{added}</span>{/if}
+    </div>
+  </form>
 
   <div class="table-wrap">
     <table>

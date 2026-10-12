@@ -26,6 +26,7 @@ func registerDeviceRoutes(mux *http.ServeMux, d Deps, a *api) {
 	}
 
 	mux.Handle("POST "+apiPrefix+"/auth/device-login", public(a.deviceLogin))
+	mux.Handle("POST "+apiPrefix+"/auth/device-register", public(a.deviceRegister))
 	mux.Handle("POST "+apiPrefix+"/auth/handoff-code", deviceRoute(a.handoffCode))
 	mux.Handle("GET /auth/handoff", http.HandlerFunc(a.handoff))
 	mux.Handle("GET "+apiPrefix+"/me/devices", private(a.listDevices))
@@ -60,6 +61,38 @@ func (a *api) deviceLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, protocol.DeviceLoginResponse{
+		DeviceToken: res.Token, DeviceID: res.DeviceID, HandoffCode: res.HandoffCode,
+	})
+}
+
+func (a *api) deviceRegister(w http.ResponseWriter, r *http.Request) {
+	var req protocol.DeviceRegisterRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	fields := map[string]string{}
+	if strings.TrimSpace(req.Name) == "" {
+		fields["name"] = "required"
+	}
+	if req.Password == "" {
+		fields["password"] = "required"
+	}
+	if strings.TrimSpace(req.DeviceName) == "" {
+		fields["device_name"] = "required"
+	}
+	if len(fields) > 0 {
+		WriteFieldErrors(w, http.StatusBadRequest, CodeBadRequest, "one or more fields are invalid", fields)
+		return
+	}
+	res, err := a.auth.DeviceRegister(r.Context(), auth.DeviceRegisterInput{
+		Name: req.Name, Password: req.Password, DeviceName: req.DeviceName,
+		UserAgent: r.UserAgent(), IP: clientIP(r),
+	})
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, protocol.DeviceLoginResponse{
 		DeviceToken: res.Token, DeviceID: res.DeviceID, HandoffCode: res.HandoffCode,
 	})
 }

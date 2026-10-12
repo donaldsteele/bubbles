@@ -71,3 +71,46 @@ func TestDeviceClientCalls(t *testing.T) {
 		t.Fatalf("RevokeDevice: %v", err)
 	}
 }
+
+func TestDeviceRegisterAndStatus(t *testing.T) {
+	pki := newPKI(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/auth/device-register", func(w http.ResponseWriter, r *http.Request) {
+		var req protocol.DeviceRegisterRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Name == "taken" {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":{"code":"conflict","message":"that name is already taken"}}`))
+			return
+		}
+		if req.Name != "Ada" || req.Password != "pw" || req.DeviceName != "laptop" {
+			t.Errorf("request = %+v", req)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(protocol.DeviceLoginResponse{DeviceToken: "bub_dev", DeviceID: "d1", HandoffCode: "h1"})
+	})
+	mux.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("status sent a token")
+		}
+		closes := "2026-01-02T03:04:05.000Z"
+		_ = json.NewEncoder(w).Encode(protocol.ServerStatus{InstanceName: "home", RegistrationOpen: true, RegistrationClosesAt: &closes})
+	})
+	srv := pki.server(t, mux, true)
+	c, err := New(Config{BaseURL: srv.URL, CAFingerprint: pki.caFP})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.DeviceRegister(context.Background(), "Ada", "pw", "laptop")
+	if err != nil || res.DeviceToken != "bub_dev" || res.HandoffCode != "h1" {
+		t.Fatalf("DeviceRegister = %+v, %v", res, err)
+	}
+	var ae *APIError
+	if _, err := c.DeviceRegister(context.Background(), "taken", "pw", "laptop"); !errors.As(err, &ae) || ae.Status != http.StatusConflict {
+		t.Fatalf("taken name: %v", err)
+	}
+	st, err := c.Status(context.Background())
+	if err != nil || st.InstanceName != "home" || !st.RegistrationOpen || st.RegistrationClosesAt == nil {
+		t.Fatalf("Status = %+v, %v", st, err)
+	}
+}

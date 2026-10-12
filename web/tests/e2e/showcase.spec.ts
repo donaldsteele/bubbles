@@ -1,7 +1,9 @@
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import http from 'node:http';
 import { expect, message, openChannel, test } from './fixtures';
 import type { OpenOptions, Page, Server, Session, User } from './fixtures';
 
@@ -292,20 +294,37 @@ test.describe('showcase screenshots', () => {
     await page.mouse.move(2, 2);
   };
 
-  const shoot = async (page: Page, name: string) => {
+  /**
+   * Waits for fonts, rewrites text that would leak this machine (its hostname,
+   * plus the literal pairs in `mask`, applied in order) and takes the viewport.
+   */
+  const shoot = async (page: Page, name: string, mask: [string, string][] = []) => {
     await page.evaluate(() => document.fonts.ready);
     // The CA name carries this machine's hostname; published shots use a neutral one.
-    // Hostnames are letters, digits, hyphens and dots, so only the dots need escaping.
-    await page.evaluate((host) => {
-      const re = new RegExp(host.replace(/\./g, '\\.'), 'gi');
+    const pairs: [string, string][] = [[os.hostname(), 'basement-pc'], ...mask];
+    await page.evaluate((pairs) => {
+      // Hostnames and addresses are letters, digits, hyphens and dots: escape the dots.
+      const esc = (t: string) => t.replace(/\./g, '\\.');
       const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-        if (n.nodeValue) n.nodeValue = n.nodeValue.replace(re, 'basement-pc');
+        let v = n.nodeValue;
+        if (!v) continue;
+        for (const [from, to] of pairs) v = v.replace(new RegExp(esc(from), 'gi'), to);
+        n.nodeValue = v;
       }
-    }, os.hostname());
+    }, pairs);
     await page.waitForTimeout(800);
     await page.screenshot({ path: path.join(outDir, `${name}.png`) });
   };
+
+  /** The address masks for pages served on this test server's random ports. */
+  const lanMask = (server: Server): [string, string][] => [
+    [`127.0.0.1:${server.httpsPort}`, '192.168.1.20:28225'],
+    [`127.0.0.1:${server.httpPort}`, '192.168.1.20:28226'],
+    ['127.0.0.1', '192.168.1.20'],
+    [String(server.httpsPort), '28225'],
+    [String(server.httpPort), '28226'],
+  ];
 
   /** Other people with the app open, so presence and connection counts look alive. */
   const peers = async (open: Opener) => {
@@ -444,10 +463,120 @@ test.describe('showcase screenshots', () => {
     await shoot(page, 'login-dark');
   });
 
+  test('phone login dark', async ({ open }) => {
+    const { page } = await open(null, { colorScheme: 'dark', ...phone });
+    await page.goto('/login');
+    await expect(page.getByLabel('Username')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Create an account' })).toBeVisible();
+    await shoot(page, 'phone-login-dark');
+  });
+
   test('onboarding light', async ({ server, open }) => {
     const { page } = await open(null, { colorScheme: 'light', ...desktop });
     await page.goto(`http://127.0.0.1:${server.httpPort}/`);
-    await shoot(page, 'onboarding-light');
+    await shoot(page, 'onboarding-light', lanMask(server));
+  });
+
+  test('phone onboarding light', async ({ server, open }) => {
+    const { page } = await open(null, { colorScheme: 'light', ...phone });
+    await page.goto(`http://127.0.0.1:${server.httpPort}/`);
+    const create = page
+      .getByRole('link', { name: 'Create your account' })
+      .or(page.getByRole('button', { name: 'Create your account' }))
+      .first();
+    await expect(create).toBeVisible();
+    await create.scrollIntoViewIfNeeded();
+    await shoot(page, 'phone-onboarding-light', lanMask(server));
+  });
+
+  test('phone register light', async ({ open }) => {
+    const { page } = await open(null, { colorScheme: 'light', ...phone });
+    await page.goto('/register');
+    await page.getByLabel('Your name').fill('Bea');
+    await expect(page.getByRole('button', { name: 'Create account' })).toBeVisible();
+    await shoot(page, 'phone-register-light');
+  });
+
+  test('admin sign-up dark', async ({ open }) => {
+    const page = await main(open, 'dark');
+    await page.goto('/admin/settings');
+    const box = page.getByRole('group', { name: 'Sign-up' });
+    await expect(box).toContainText(/Open until/);
+    await box.scrollIntoViewIfNeeded();
+    await page.mouse.move(2, 2);
+    await shoot(page, 'admin-signup-dark');
+  });
+
+  test.describe('tray window', () => {
+    const repo = fileURLToPath(new URL('../../../', import.meta.url));
+    const trayOut = path.join(os.tmpdir(), 'bubbles-tray-showcase');
+    const types: Record<string, string> = {
+      '.html': 'text/html',
+      '.js': 'text/javascript',
+      '.css': 'text/css',
+    };
+    let web: http.Server;
+    let base = '';
+
+    test.beforeAll(async () => {
+      // Build tray/frontend against the stub bindings (no Wails needed).
+      execFileSync(
+        process.execPath,
+        [
+          path.join(repo, 'tray', 'frontend', 'node_modules', 'vite', 'bin', 'vite.js'),
+          'build',
+          '--config',
+          '../../tools/site/tray-showcase/vite.config.mjs',
+        ],
+        {
+          cwd: path.join(repo, 'tray', 'frontend'),
+          env: { ...process.env, TRAY_SHOWCASE_OUT: trayOut },
+          stdio: 'pipe',
+        },
+      );
+      web = http.createServer((req, res) => {
+        const rel = decodeURIComponent((req.url ?? '/').split('?')[0]);
+        const file = path.join(trayOut, rel === '/' ? 'index.html' : rel);
+        if (!file.startsWith(trayOut) || !existsSync(file) || !statSync(file).isFile()) {
+          res.writeHead(404).end();
+          return;
+        }
+        res.writeHead(200, {
+          'content-type': types[path.extname(file)] ?? 'application/octet-stream',
+        });
+        createReadStream(file).pipe(res);
+      });
+      await new Promise<void>((r) => web.listen(0, '127.0.0.1', r));
+      base = `http://127.0.0.1:${(web.address() as { port: number }).port}/`;
+    });
+    test.afterAll(() => {
+      web?.close();
+    });
+
+    for (const scheme of ['dark', 'light'] as Scheme[]) {
+      test(`tray join ${scheme}`, async ({ browser }) => {
+        const ctx = await browser.newContext({
+          viewport: { width: 520, height: 640 },
+          deviceScaleFactor: 2,
+          colorScheme: scheme,
+        });
+        const page = await ctx.newPage();
+        await page.goto(`${base}?screen=server`);
+        await expect(page.getByRole('button', { name: /^Join Basement LAN/ })).toBeVisible();
+        await shoot(page, `tray-join-${scheme}`);
+
+        await page.goto(`${base}?screen=confirm`);
+        await expect(page.getByRole('heading', { name: 'Join Basement LAN?' })).toBeVisible();
+        await page.locator('#sure').check();
+        await shoot(page, `tray-confirm-${scheme}`);
+
+        await page.goto(`${base}?screen=account`);
+        await page.locator('#reg-name').fill('Bea');
+        await page.locator('#reg-pass').fill('pizza-night');
+        await shoot(page, `tray-account-${scheme}`);
+        await ctx.close();
+      });
+    }
   });
 
   test('phone channel dark', async ({ open }) => {

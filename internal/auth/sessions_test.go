@@ -303,11 +303,11 @@ func TestChangePassword(t *testing.T) {
 	if err := e.svc.ChangePassword(e.ctx, bad); !errors.Is(err, ErrWrongPassword) {
 		t.Errorf("wrong current: %v", err)
 	}
-	weak := in
-	weak.New = "1234567890"
+	empty := in
+	empty.New = ""
 	var ve *ValidationError
-	if err := e.svc.ChangePassword(e.ctx, weak); !errors.As(err, &ve) || ve.Fields["new"] == "" {
-		t.Errorf("common new password: %v", err)
+	if err := e.svc.ChangePassword(e.ctx, empty); !errors.As(err, &ve) || ve.Fields["new"] == "" {
+		t.Errorf("empty new password: %v", err)
 	}
 	if _, err := e.svc.Authenticate(e.ctx, phone.Token); err != nil {
 		t.Fatalf("failed attempts revoked a session: %v", err)
@@ -405,7 +405,10 @@ func TestPurgeExpired(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 	e := newEnv(t)
-	in := RegisterInput{Username: "Newbie", Password: goodPassword, DisplayName: "New B", IP: "192.168.1.5"}
+	in := RegisterInput{Name: "New B", Password: goodPassword, IP: "192.168.1.5"}
+	if err := e.settings.Set(e.ctx, audit.System, settings.KeyOpenRegistration, false); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := e.svc.Register(e.ctx, in); !errors.Is(err, ErrRegistrationClosed) {
 		t.Fatalf("closed: %v", err)
 	}
@@ -416,16 +419,16 @@ func TestRegister(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.User.Username != "newbie" || res.User.Role != RoleMember || res.User.DisplayName != "New B" {
+	if res.User.Username != "new-b" || res.User.Role != RoleMember || res.User.DisplayName != "New B" {
 		t.Errorf("user = %+v", res.User)
 	}
-	if _, err := e.svc.Register(e.ctx, in); !errors.Is(err, ErrUsernameTaken) {
+	if _, err := e.svc.Register(e.ctx, in); !errors.Is(err, ErrNameTaken) {
 		t.Errorf("duplicate: %v", err)
 	}
 	bad := in
-	bad.Username, bad.Password = "x", "short"
+	bad.Name, bad.Password = "", ""
 	var ve *ValidationError
-	if _, err := e.svc.Register(e.ctx, bad); !errors.As(err, &ve) || ve.Fields["username"] == "" || ve.Fields["password"] == "" {
+	if _, err := e.svc.Register(e.ctx, bad); !errors.As(err, &ve) || ve.Fields["name"] == "" || ve.Fields["password"] == "" {
 		t.Errorf("invalid: %v", err)
 	}
 	if e.auditCount(audit.ActionRegister) != 1 {

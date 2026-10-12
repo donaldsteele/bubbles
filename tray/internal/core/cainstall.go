@@ -77,6 +77,9 @@ func WriteCAPEM(dir string, der []byte, confirmed string) (string, error) {
 	if err != nil || !cert.IsCA {
 		return "", errors.New("the data is not a CA certificate")
 	}
+	if err := CheckCAConstraints(cert); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create directory: %w", err)
 	}

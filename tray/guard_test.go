@@ -127,8 +127,10 @@ func TestAuthServiceGuardFirst(t *testing.T) {
 		{"State", func() error { _, err := svc.State(ctx); return err }},
 		{"Discover", func() error { _, err := svc.Discover(ctx); return err }},
 		{"Prepare", func() error { _, err := svc.Prepare(ctx, "https://x", ""); return err }},
+		{"PrepareNamed", func() error { _, err := svc.PrepareNamed(ctx, "https://x", "", "Home"); return err }},
 		{"Confirm", func() error { _, err := svc.Confirm(ctx, "AA:BB", true); return err }},
 		{"Login", func() error { _, err := svc.Login(ctx, "u", "p", "d"); return err }},
+		{"Register", func() error { _, err := svc.Register(ctx, "n", "p", "d"); return err }},
 		{"Back", func() error { _, err := svc.Back(ctx); return err }},
 	}
 	for _, tt := range tests {

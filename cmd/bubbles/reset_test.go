@@ -161,9 +161,11 @@ func TestResetCLIFactory(t *testing.T) {
 		if code != exitOK {
 			t.Fatalf("rotate=%v: exit %d\n%s\n%s", rotate, code, stdout, stderr)
 		}
-		token, err := os.ReadFile(filepath.Join(dir, auth.SetupTokenFile))
-		if err != nil || !strings.Contains(stdout, strings.TrimSpace(string(token))) {
-			t.Errorf("printed token does not match the token file (%v):\n%s", err, stdout)
+		if !strings.Contains(stdout, "it prints a new admin password") {
+			t.Errorf("no hint about the new admin password:\n%s", stdout)
+		}
+		if _, err := os.Stat(filepath.Join(dir, auth.AdminPasswordFile)); !os.IsNotExist(err) {
+			t.Errorf("admin password file after the offline reset: %v", err)
 		}
 		ca, err := tlsca.LoadCA(filepath.Join(dir, config.DirTLS))
 		if err != nil {

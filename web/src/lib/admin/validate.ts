@@ -20,6 +20,8 @@ const MB = 1024 * 1024;
 export interface SettingsForm {
   instanceName: string;
   openRegistration: boolean;
+  /** Hours sign-up stays open once opened; 0 = never closes. */
+  registrationWindowHours: number;
   uploadMaxMB: string;
   userQuotaMB: string;
   diskReserveMB: string;
@@ -102,6 +104,7 @@ export function settingsBody(f: SettingsForm): Record<string, unknown> {
   return {
     instance_name: f.instanceName.trim(),
     open_registration: f.openRegistration,
+    registration_window_hours: f.registrationWindowHours,
     upload_max_bytes: Number(f.uploadMaxMB.trim()) * MB,
     user_quota_bytes: Number(f.userQuotaMB.trim()) * MB,
     disk_reserve_bytes: Number(f.diskReserveMB.trim()) * MB,
@@ -119,6 +122,7 @@ export function settingsBody(f: SettingsForm): Record<string, unknown> {
 export interface SettingsWire {
   instance_name: string;
   open_registration: boolean;
+  registration_window_hours: number;
   upload_max_bytes: number;
   user_quota_bytes: number;
   disk_reserve_bytes: number;
@@ -136,6 +140,7 @@ export function settingsToForm(s: SettingsWire): SettingsForm {
   return {
     instanceName: s.instance_name,
     openRegistration: s.open_registration,
+    registrationWindowHours: s.registration_window_hours,
     uploadMaxMB: String(Math.round(s.upload_max_bytes / MB)),
     userQuotaMB: String(Math.round(s.user_quota_bytes / MB)),
     diskReserveMB: String(Math.round(s.disk_reserve_bytes / MB)),

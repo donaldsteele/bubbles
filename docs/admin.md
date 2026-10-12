@@ -1,22 +1,36 @@
 # Administering bubbles
 
-This guide is for the person who runs the server. It covers first-time setup,
+This guide is for the person who runs the server. It covers the first start,
 accounts, integrations, settings, the reset actions, backups, TLS, and running
 bubbles as a service.
 
-## First start and setup
+## First start
 
-1. Start the server (see the [README](../README.md)). The console prints a
-   one-time **setup token**. It is also written to `<data-dir>/setup-token.txt`
-   (readable only by the owner).
-2. Open the HTTPS address on the console in a browser, enter the setup token,
-   and create the first administrator account.
-3. Other people join through invitations (below).
+On first start the server creates the account `admin` (display name "Admin",
+role admin) with a generated password. The console prints it in a banner:
 
-Setup needs the token from the server console, so someone else on the network
-cannot claim the admin account first. If you lose the token, restart the server
-or run a factory reset from the console (`bubbles reset --factory`), which
-issues a new one.
+```
+  Sign in as:   admin
+  Password:     k7mq-x4pz-9vbd-h2nc
+  (also saved in <data-dir>/admin-password.txt; deleted when you change the password)
+```
+
+1. Start the server (see the [README](../README.md)) and keep the banner.
+2. Open the HTTPS address on the console in a browser, sign in as `admin` with
+   that password, and change it.
+3. Other people join through sign-up or invitations (below).
+
+The banner also goes to `docker logs`. It is printed on the console only and is
+never written to the log files.
+
+The password is also saved in `<data-dir>/admin-password.txt`. The file is
+owner-only and is deleted when the admin's password changes. On later starts,
+while the file still exists, the banner says "The first admin password is in
+<path>".
+
+If you forget the password, run `bubbles admin reset-password admin`. It prints a
+one-time reset link. A factory reset also creates a new `admin` with a new
+generated password (see [Factory reset](#factory-reset)).
 
 ## Admin overview
 
@@ -59,9 +73,40 @@ themselves.
 The console command `bubbles admin reset-password <username>` also starts a
 password reset.
 
+## Sign-up
+
+Sign-up is open by default on a new server. (A server upgraded from v0.1.x keeps
+invite-only sign-up until an admin opens it in **Admin > Settings > Sign-up**.)
+Anyone on the network (a private or LAN address, or
+a range in `allowed_cidrs`) can create an account at `/register` with a
+**Your name** and a password. The name is shown as typed and must be unique
+(case-insensitive). An @handle is made from it automatically: "Ada Lovelace"
+becomes @ada-lovelace. People sign in with their name or their handle. New
+accounts are members.
+
+Sign-up closes by itself after `registration_window_hours` (default 24). The
+choices in the UI are 1 hour, 4 hours, 1 day, 3 days and Never. The window starts
+at first start, after a factory reset, and whenever an admin turns sign-up on or
+presses **Reopen**. The closing time is stored, so restarting the server does not
+reopen sign-up.
+
+Admin > Settings > **Sign-up** shows the state ("Open until …", "Open, no time
+limit" or "Closed") and has:
+
+- a switch, **Anyone on the network can create an account** (`open_registration`);
+- the select **Close sign-up automatically after** (`registration_window_hours`);
+- **Reopen**, which starts a new window, and **Close now**.
+
+Sign-up attempts are limited to 20 per IP address per hour.
+
+After sign-up closes, add people with an invitation link or QR code (below), or
+with **Add person** on Admin > Users (name, password and role).
+
 ## Invitations
 
-Invitations are links or QR codes that the admin creates. Each has:
+Invitations are links or QR codes that the admin creates. They work whether
+sign-up is open or closed; the person who opens one chooses a name and a password.
+Each has:
 
 - a **role** (`admin`, `member` or `guest`),
 - an **expiry** (default 72 hours; the web form accepts 1 hour to 90 days),
@@ -72,9 +117,6 @@ Console equivalent:
 ```sh
 bubbles admin create-invite --role member --expires 72h --uses 1
 ```
-
-Open self-registration is off by default. The `open_registration` setting turns
-it on; prefer invitations.
 
 ## Channels
 
@@ -138,7 +180,9 @@ the only configuration outside the database.
 | Key | Default | Meaning |
 |---|---|---|
 | `instance_name` | `bubbles` | Shown in the UI and the CA name. 1 to 64 characters. |
-| `open_registration` | off | Allow sign-up without an invitation. |
+| `open_registration` | on | Anyone on the network can create an account at `/register`. Turn it off to allow sign-up only through invitations and **Add person**. |
+| `registration_window_hours` | 24 | Hours that sign-up stays open after the window starts, from 0 to 8760. 0 means no time limit (the UI's "Never"). The window starts at first start, after a factory reset, and whenever sign-up is turned on or reopened. |
+| `open_registration_until` | set by the server | When the current sign-up window ends. Read-only through PATCH; the admin changes it with `POST /api/v1/admin/registration` (`reopen` or `close`). |
 | `upload_max_bytes` | 100 MiB | Largest single upload. Maximum 2 GiB. |
 | `user_quota_bytes` | 5 GiB | Total upload storage per user. |
 | `disk_reserve_bytes` | 1 GiB | Uploads are refused with 507 when free space drops below this. |
@@ -250,8 +294,12 @@ sign-in.
 - **Device sign-in.** The tray asks for the server address and shows the CA
   fingerprint. The user compares it with the one on the admin overview, then
   confirms; the tray can also install the CA into the operating system trust
-  store (not on Linux). The user then enters a username and password and an
-  optional device name (the computer name by default). The server checks the
+  store (Windows and macOS show their own prompt; Linux shows the steps to follow).
+  The tray refuses a CA that is not limited by critical X.509 name constraints to
+  local names and private IP ranges. The user then either creates an account
+  (**Your name**, password and a name for the computer) or signs in with a name
+  and password, and an optional device name (the computer name by default). The
+  server checks the
   credentials with the same lockout as the web sign-in and issues a **device
   token** (`POST /api/v1/auth/device-login`). Each user can hold at most 25
   active device tokens.
@@ -307,8 +355,9 @@ bubbles reset --content
 The Danger zone button **Delete everything…** starts this. It wipes everything: users, channels, DMs, messages, files, sessions, device and
 app tokens, apps, webhooks, invites, pairing requests, push subscriptions, VAPID
 keys, the audit log, log files and local database snapshots. The server then
-returns to the setup wizard with a new setup token, shown to the admin who ran
-the reset (and printed on the console).
+creates a new `admin` account with a new generated password. The password is
+shown once on the reset-complete screen and printed on the console. Sign-up opens
+again for its window.
 
 Options:
 
@@ -319,7 +368,7 @@ Options:
   still have the old root. Its key is destroyed, so it cannot sign anything
   again, but it stays in the trust store until removed. The per-OS steps for
   removing it are in [onboarding.md](onboarding.md#removing-an-old-ca).
-- **Keep server settings** (`--keep-settings`, off by default; the web dialog's
+- **Keep server settings** (`--keep-settings`; the default is not to keep them; the web dialog's
   "Keep server settings" box). Carries the settings over. Instance identity and
   secrets are never carried over.
 
@@ -333,7 +382,7 @@ bubbles reset --factory --keep-settings      # carry over settings
 ```
 
 The console form needs the server stopped and asks you to type the instance
-name unless you pass `--yes`.
+name unless you pass `--yes`. The next start prints the new admin password.
 
 ### What reset does not erase
 

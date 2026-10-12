@@ -28,17 +28,18 @@ Commands below use `bubbles` for the server binary. On Windows use `bubbles.exe`
 ### 1.1 Windows 11 host
 
 - [ ] Unzip the release, run `bubbles.exe serve` from a terminal. The console prints the HTTPS and HTTP addresses, the CA
-  fingerprint and the one-time setup token.
+  fingerprint and the admin banner (`Sign in as: admin` with a generated password).
 - [ ] Windows Firewall asks to allow `bubbles.exe`; allow Private networks only.
 - [ ] Open the printed HTTPS address on the host itself: the certificate warning appears (the CA is not trusted yet).
-- [ ] Complete the setup wizard with the setup token. Choose a strong admin password (10+ characters, not a common password;
-  a common one must be refused with a clear message).
-- [ ] After setup, `data\setup-token.txt` no longer exists (`dir %LOCALAPPDATA%\bubbles`).
+- [ ] Sign in as `admin` with the password from the console. Restart the server before changing the password: the console
+  says `The first admin password is in <path>`.
+- [ ] Change the password to a strong one of your own. The server accepts any password up to 128 characters, so the choice is yours.
+- [ ] After the change, `admin-password.txt` is gone from `%LOCALAPPDATA%\bubbles` (`dir %LOCALAPPDATA%\bubbles`).
 
 ### 1.2 Raspberry Pi 4 host (repeat steps 2 to 4 later against this host)
 
 - [ ] Copy `bubbles-<version>-linux-arm64` to the Pi, `chmod +x`, run `./bubbles serve --data-dir ~/bubbles-data`.
-- [ ] The first start finishes in under 10 seconds; the console shows addresses and the setup token.
+- [ ] The first start finishes in under 10 seconds; the console shows addresses and the admin password banner.
 - [ ] `./bubbles healthcheck --data-dir ~/bubbles-data` prints OK.
 - [ ] `top` or `htop`: the server's resident memory is below 100 MB when idle.
 
@@ -49,7 +50,7 @@ Notes: ______________________________________________
 Open the onboarding address printed on the server console in a browser on the host (it shows the QR code), scan that QR
 code with each device below (or type the address) and follow the on-screen steps. The page must work with no internet.
 
-| Device | CA installed | Opens without a certificate warning | Invite accepted | Notes |
+| Device | CA installed | Opens without a certificate warning | Account created (name and password) | Notes |
 |--------|:-----------:|:-----------------------------------:|:---------------:|-------|
 | iPhone (Safari: profile, then Certificate Trust Settings) | [ ] | [ ] | [ ] | |
 | Android (Settings, Install a certificate, CA certificate) | [ ] | [ ] | [ ] | |
@@ -58,7 +59,21 @@ code with each device below (or type the address) and follow the on-screen steps
 
 - [ ] On each device, compare the fingerprint shown on the onboarding page with the one on the server console: they match.
 - [ ] On Android, if `bubbles.local` does not resolve, the numeric address listed on the page works.
-- [ ] Create an invite in Admin, Invites; open the invite link on a phone; create the account; you land signed in.
+- [ ] Phone registration: on a phone, open `http://<server>:28226` (or scan the QR code), trust the CA, tap **Create your account**
+  (name and password); you land signed in.
+- [ ] Invitation: in Admin, Invites, create a link; open it on a second phone; create the account with a name and password; you land signed in.
+
+Notes: ______________________________________________
+
+### 2.1 Sign-up window, closing and Add person
+
+- [ ] On a fresh start, Admin, Settings, **Sign-up** shows "Open until …" about 24 hours ahead, and the switch "Anyone on the network can create an account" is on.
+- [ ] Press **Close now**: the state shows "Closed". The onboarding page and `/register` say sign-up is closed and ask for an invite link.
+- [ ] Restart the server: sign-up is still closed.
+- [ ] Press **Reopen**: the state shows "Open until …" again and a new account can be created at `/register`.
+- [ ] Optional, slow: set **Close sign-up automatically after** to 1 hour, wait for it to pass, and confirm it closes on its own.
+- [ ] A name that already exists (in any letter case) is refused at sign-up with a clear message; the @handle is made from the name (for example "Ada Lovelace" gives @ada-lovelace).
+- [ ] Admin, Users, **Add person** (name, password, role `member`): the new account signs in on a phone.
 
 Notes: ______________________________________________
 
@@ -93,19 +108,24 @@ Sign in on all four clients with different accounts (invite two more members if 
 
 Notes: ______________________________________________
 
-## 4. Tray app notifications (Windows and macOS)
+## 4. Tray app: join and notifications (Windows, macOS and Linux)
 
 On the Windows 11 PC and on the Mac, install the tray app from the release.
 
-- [ ] First run: the tray asks for the server address, then shows the CA fingerprint for confirmation. The fingerprint equals the one on the console.
+- [ ] First run: the tray finds the server (a **Join <instance> · <address>** button) or takes a typed address, then shows a confirm step with the server name, the address and the CA fingerprint. The fingerprint equals the one on the console. Windows and macOS show their own CA install prompt; accept it.
+- [ ] Create account from the tray (**Your name**, password, name of this computer): the chat window opens already signed in, with no second sign-in.
 - [ ] Sign in with a normal account (not admin is fine). The tray icon turns to "connected".
 - [ ] Wrong password: a generic error; five wrong attempts lock the account for a while (and the web sign-in shows the same lockout).
 - [ ] Send a message mentioning the tray user from the iPhone: a system notification appears on the desktop. It shows the sender and
   channel, and the preview follows the notification privacy setting.
 - [ ] Click the notification: the browser or tray window opens directly in that channel without a second sign-in.
 - [ ] Mute the channel: no notification for new messages. Do-not-disturb on the OS: no sound.
-- [ ] Sign out in the tray: the device disappears from Profile, Sessions and devices, and the tray returns to sign-in.
+- [ ] Sign out in the tray: the device is revoked on the server (`GET /api/v1/me/devices` no longer lists it), and the tray returns to sign-in.
 - [ ] Stop the server for 30 seconds and start it again: the tray reconnects by itself and shows missed alerts.
+- [ ] Linux (any Linux computer with the tray app): the tray shows the steps to trust the CA instead of installing it; after you
+  follow them, the join continues and the account is created or signed in.
+- [ ] Optional: a fake or unconstrained CA is refused. Offer the tray a test CA without critical name constraints limited to local
+  names and private IP ranges: the tray shows an error and installs nothing.
 
 Notes: ______________________________________________
 
@@ -153,7 +173,7 @@ Goal: wipe content, wipe everything, and prove the phones reconnect without rein
    download the encrypted backup first. Confirm with the instance name and password.
 3. [ ] All clients show "This server was reset" (close code 4010) and return to the start page. Cached data and drafts are gone
    (check in the browser: Application, Storage shows no bubbles IndexedDB or localStorage content).
-4. [ ] The console prints the new setup token. Run the setup wizard again and create the admin and new accounts.
+4. [ ] The console prints the new admin password, and the reset-complete screen shows it once. Sign in as `admin` with it, change it, then create the new accounts.
 5. [ ] **The iPhone, Android phone and Mac, which already trust the CA, open the server address without any certificate warning and
    without reinstalling anything.** The CA fingerprint on the console is unchanged.
 6. [ ] Search for an old message and open an old file URL: nothing is found; the files directory on the host contains no old files
@@ -199,8 +219,8 @@ Real Safari (macOS and iOS) has its own service worker and storage behaviour tha
 
 - [ ] In Safari on the Mac, sign in, open a channel, then Develop, Service Workers lists the bubbles worker as activated.
 - [ ] Perform a factory reset from another browser. In Safari the open tab shows "This server was reset" and navigates to the start page.
-- [ ] Reload: the setup wizard (or login) appears, not the old app shell; no stale channel list; Develop, Storage shows cleared bubbles data.
-- [ ] Repeat on the iPhone, with the app added to the Home Screen: after the reset, opening it shows the setup or login page, not old messages.
+- [ ] Reload: the sign-in page appears, not the old app shell; no stale channel list; Develop, Storage shows cleared bubbles data.
+- [ ] Repeat on the iPhone, with the app added to the Home Screen: after the reset, opening it shows the sign-in page, not old messages.
 - [ ] Unregister is not needed: the new instance is reached with the existing worker updating itself ("New version available" prompt may appear once).
 
 Notes: ______________________________________________

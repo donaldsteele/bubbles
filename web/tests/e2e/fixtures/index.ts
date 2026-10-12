@@ -9,7 +9,7 @@ import {
 import { Server, SESSION_COOKIE, type User } from './server';
 
 export { expect, Server, type Page, type User };
-export { PASSWORD, SETUP_TOKEN } from './server';
+export { PASSWORD } from './server';
 export { buildJpegWithGps, hasGpsMetadata } from './jpeg';
 
 export interface OpenOptions {
@@ -110,21 +110,6 @@ export async function loginAs(page: Page, user: { username: string; password: st
   await expect(page).not.toHaveURL(/\/login/);
 }
 
-/** Runs the first-run wizard in the browser. */
-export async function setupAdminUI(
-  page: Page,
-  token: string,
-  opts: { instance: string; username: string; password: string },
-) {
-  await page.goto('/setup');
-  await page.getByLabel('Setup token').fill(token);
-  await page.getByLabel('Instance name').fill(opts.instance);
-  await page.getByLabel('Username').fill(opts.username);
-  await page.getByLabel('Password').fill(opts.password);
-  await page.getByRole('button', { name: 'Create administrator' }).click();
-  await expect(page).not.toHaveURL(/\/setup/);
-}
-
 export const composer = (page: Page) => page.locator('#composer-composer');
 export const threadComposer = (page: Page) => page.locator('#composer-drawer-composer');
 
@@ -197,7 +182,7 @@ export interface Seed {
   cy: User;
 }
 
-/** First-run setup through the API plus two members, all in #general. */
+/** Bootstrap admin setup through the API plus two members, all in #general. */
 export async function seed(server: Server): Promise<Seed> {
   const admin = await server.setupAdmin();
   const bea = await server.createUser('bea');

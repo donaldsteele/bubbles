@@ -28,7 +28,7 @@ func TestFilesAndRetentionAreWired(t *testing.T) {
 	if err := os.WriteFile(stale, []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h := start(t, cfg)
+	h := startCheap(t, cfg)
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Errorf("the stale spool file survived the startup sweep: %v", err)
 	}
@@ -39,10 +39,6 @@ func TestFilesAndRetentionAreWired(t *testing.T) {
 
 	base := "https://" + h.app.HTTPSAddr().String()
 	client := h.httpsClient()
-	token, err := os.ReadFile(filepath.Join(cfg.DataDir, "setup-token.txt"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	do := func(req *http.Request, cookie *http.Cookie) (*http.Response, []byte) {
 		req.Header.Set("Origin", base)
 		if cookie != nil {
@@ -54,28 +50,16 @@ func TestFilesAndRetentionAreWired(t *testing.T) {
 		}
 		return res, readAll(t, res)
 	}
-	req, _ := http.NewRequest(http.MethodPost, base+"/api/v1/setup", strings.NewReader(
-		`{"setup_token":"`+strings.TrimSpace(string(token))+`","username":"owner","password":"correct horse battery","display_name":"Owner","instance_name":"House"}`))
-	req.Header.Set("Content-Type", "application/json")
-	res, body := do(req, nil)
-	if res.StatusCode != http.StatusCreated {
-		t.Fatalf("setup: %d %s", res.StatusCode, body)
-	}
-	var cookie *http.Cookie
-	for _, c := range res.Cookies() {
-		if c.Name == "__Host-bubbles_session" {
-			cookie = c
-		}
-	}
+	cookie := signIn(t, h, ownerPassword).cookie
 
 	var form bytes.Buffer
 	mw := multipart.NewWriter(&form)
 	part, _ := mw.CreateFormFile("file", "photo.jpg")
 	_, _ = part.Write(filestest.JPEGWithMeta(64, 48, 1))
 	_ = mw.Close()
-	req, _ = http.NewRequest(http.MethodPost, base+"/api/v1/files", &form)
+	req, _ := http.NewRequest(http.MethodPost, base+"/api/v1/files", &form)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
-	res, body = do(req, cookie)
+	res, body := do(req, cookie)
 	if res.StatusCode != http.StatusCreated {
 		t.Fatalf("upload: %d %s", res.StatusCode, body)
 	}
@@ -103,7 +87,7 @@ func TestFilesAndRetentionAreWired(t *testing.T) {
 
 	// The retention job is registered: two days later, with a one-day
 	// retention on the channel, one tick removes the message and its file.
-	err = h.app.db.Do(context.Background(), func(tx *store.Tx) error {
+	err := h.app.db.Do(context.Background(), func(tx *store.Tx) error {
 		_, err := tx.Exec(`UPDATE channels SET retention_days = 1 WHERE id = ?`, channelID)
 		return err
 	})

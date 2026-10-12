@@ -197,8 +197,8 @@ func mutationCases(f *mutationFixture) []mutationCase {
 			_, err := e.svc.MarkReadTx(tx, bob.Actor, pub.ID, pinned.ID)
 			return err
 		}},
-		{"OnSetup", []string{"channel.created"}, func(tx *store.Tx) error {
-			return e.svc.OnSetupTx(tx.Context(), tx, admin.ID)
+		{"OnBootstrap", []string{"channel.created"}, func(tx *store.Tx) error {
+			return e.svc.OnBootstrapTx(tx.Context(), tx, admin.ID)
 		}},
 		{"OnUserCreated", []string{"channel.member_joined"}, func(tx *store.Tx) error {
 			return e.svc.OnUserCreatedTx(tx.Context(), tx, late.ID)

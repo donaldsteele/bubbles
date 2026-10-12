@@ -36,16 +36,21 @@
 {{end}}
 
 <section class="card" aria-labelledby="open">
-<h2 id="open">2. {{if .Invite}}Accept the invitation{{else}}Open bubbles{{end}}</h2>
+<h2 id="open">2. {{if .Invite}}Accept the invitation{{else if .RegisterURL}}Create your account{{else}}Open bubbles{{end}}</h2>
+{{if .RegisterURL}}<p>After the certificate step, tap the button and pick a name and a password.</p>
+<p><a class="button large" href="{{.RegisterURL}}">Create your account</a></p>
+{{else if .SignupClosed}}<p>Sign-up is closed. To join, ask the admin for an invite.</p>
+{{end}}
 {{if .Target}}
 {{if .Invite}}<p><a class="button" href="{{.Target}}">Accept the invitation</a></p>{{end}}
+{{$qr := .Target}}{{if .RegisterURL}}{{$qr = .RegisterURL}}{{end}}
 <figure class="qr">
-<img src="/qr.svg?u={{.Target}}" width="220" height="220" alt="QR code for {{.Target}}">
+<img src="/qr.svg?u={{$qr}}" width="220" height="220" alt="QR code for {{$qr}}">
 <figcaption>Scan with the phone or tablet you want to connect.</figcaption>
 </figure>
 {{end}}
 {{if .URLs}}
-<p>Addresses of this server:</p>
+<p>{{if .RegisterURL}}Or open bubbles directly:{{else}}Addresses of this server:{{end}}</p>
 <ul class="urls">
 {{range .URLs}}<li><a href="{{.}}">{{.}}</a></li>
 {{end}}</ul>

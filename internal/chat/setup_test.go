@@ -16,28 +16,26 @@ var cheapParams = auth.Params{Time: 1, MemoryKiB: 8, Threads: 1, SaltLen: 16, Ke
 
 const goodPassword = "correct horse battery"
 
-// TestGeneralAtSetupAndAutoJoin wires the chat hooks into a real auth service,
+// TestGeneralAtBootstrapAndAutoJoin wires the chat hooks into a real auth service,
 // the way internal/app does, and checks #general and the auto-join rules for
-// every way an account is created.
-func TestGeneralAtSetupAndAutoJoin(t *testing.T) {
+// every way an account is created (bootstrap, invite, register).
+func TestGeneralAtBootstrapAndAutoJoin(t *testing.T) {
 	e := newEnv(t)
 	dir := t.TempDir()
 	svc, err := auth.New(auth.Options{
 		DB: e.db, Settings: e.st, DataDir: dir, Now: e.clock.Now, Params: cheapParams,
-		OnSetup: e.svc.OnSetupTx, OnUserCreated: e.svc.OnUserCreatedTx,
+		OnBootstrap: e.svc.OnBootstrapTx, OnUserCreated: e.svc.OnUserCreatedTx,
 	})
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
 	}
-	token, err := svc.InitSetup(e.ctx)
-	if err != nil || token == "" {
-		t.Fatalf("InitSetup: %q, %v", token, err)
+	pw, err := svc.BootstrapAdmin(e.ctx)
+	if err != nil || pw == "" {
+		t.Fatalf("BootstrapAdmin: %q, %v", pw, err)
 	}
-	res, err := svc.Setup(e.ctx, auth.SetupInput{
-		Token: token, Username: "admin", Password: goodPassword, DisplayName: "Admin", InstanceName: "Home",
-	})
+	res, err := svc.Login(e.ctx, auth.LoginInput{Username: auth.BootstrapAdminUsername, Password: pw})
 	if err != nil {
-		t.Fatalf("Setup: %v", err)
+		t.Fatalf("Login: %v", err)
 	}
 	adminID := res.User.ID
 
@@ -54,9 +52,9 @@ func TestGeneralAtSetupAndAutoJoin(t *testing.T) {
 	if ms := mustMembers(t, e, user{Actor: Actor{ID: adminID, Role: protocol.RoleAdmin}}, g.ID); len(ms) != 1 || ms[0].Role != protocol.MemberOwner {
 		t.Fatalf("members = %+v", ms)
 	}
-	setupEvents := e.events(0)
-	if !slices.ContainsFunc(setupEvents, func(l logged) bool { return l.Type == "channel.created" && l.Channel == g.ID }) {
-		t.Fatalf("setup events = %v, want channel.created for #general", types(setupEvents))
+	bootstrapEvents := e.events(0)
+	if !slices.ContainsFunc(bootstrapEvents, func(l logged) bool { return l.Type == "channel.created" && l.Channel == g.ID }) {
+		t.Fatalf("bootstrap events = %v, want channel.created for #general", types(bootstrapEvents))
 	}
 
 	adminActor := audit.User(adminID, "")
@@ -78,7 +76,7 @@ func TestGeneralAtSetupAndAutoJoin(t *testing.T) {
 	if err := e.st.Set(e.ctx, audit.System, settings.KeyOpenRegistration, true); err != nil {
 		t.Fatal(err)
 	}
-	reg, err := svc.Register(e.ctx, auth.RegisterInput{Username: "selfreg", Password: goodPassword, DisplayName: "Self"})
+	reg, err := svc.Register(e.ctx, auth.RegisterInput{Name: "Self", Password: goodPassword})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -126,14 +124,14 @@ func TestGeneralAtSetupAndAutoJoin(t *testing.T) {
 	}
 }
 
-// TestOnSetupIsIdempotent checks a repeated setup hook keeps a single #general.
-func TestOnSetupIsIdempotent(t *testing.T) {
+// TestOnBootstrapIsIdempotent checks a repeated bootstrap hook keeps a single #general.
+func TestOnBootstrapIsIdempotent(t *testing.T) {
 	e := newEnv(t)
 	admin := e.human("root", protocol.RoleAdmin)
 	for i := 0; i < 2; i++ {
-		err := e.db.Do(e.ctx, func(tx *store.Tx) error { return e.svc.OnSetupTx(e.ctx, tx, admin.ID) })
+		err := e.db.Do(e.ctx, func(tx *store.Tx) error { return e.svc.OnBootstrapTx(e.ctx, tx, admin.ID) })
 		if err != nil {
-			t.Fatalf("OnSetupTx #%d: %v", i, err)
+			t.Fatalf("OnBootstrapTx #%d: %v", i, err)
 		}
 	}
 	if n := e.count(`SELECT COUNT(*) FROM channels WHERE name = 'general'`); n != 1 {

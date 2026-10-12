@@ -23,12 +23,10 @@ var (
 	// ErrWrongPassword means the current password given to a password
 	// change is incorrect.
 	ErrWrongPassword = errors.New("current password is incorrect")
-	// ErrSetupDone means first-run setup was already completed.
-	ErrSetupDone = errors.New("setup already completed")
-	// ErrSetupToken means the setup token is missing or wrong.
-	ErrSetupToken = errors.New("invalid setup token")
 	// ErrUsernameTaken means the requested username exists.
 	ErrUsernameTaken = errors.New("username is already taken")
+	// ErrNameTaken means another active person already has that name.
+	ErrNameTaken = errors.New("name is already taken")
 	// ErrInviteInvalid means an invite code is unknown, expired, revoked or
 	// used up.
 	ErrInviteInvalid = errors.New("invite is invalid or has expired")
@@ -64,7 +62,8 @@ type Options struct {
 	// Settings supplies session_idle_days, open_registration and
 	// instance_name; required.
 	Settings *settings.Store
-	// DataDir holds setup-token.txt; required for InitSetup.
+	// DataDir holds admin-password.txt; BootstrapAdmin skips the file when
+	// it is empty.
 	DataDir string
 	// Now is the clock; nil means time.Now. It should be the clock the store
 	// uses, so session expiry and created_at agree.
@@ -77,17 +76,23 @@ type Options struct {
 	// MaxConcurrentHashes bounds simultaneous argon2 computations; 0 means
 	// DefaultMaxConcurrentHashes.
 	MaxConcurrentHashes int
-	// OnSetup runs inside the first-run setup transaction after the admin
-	// user exists; the chat service uses it to create #general. An error
-	// aborts the setup.
-	OnSetup func(ctx context.Context, tx *store.Tx, adminID string) error
+	// OnBootstrap runs inside the bootstrap transaction after the first admin
+	// exists; the chat service uses it to create #general. An error aborts
+	// the bootstrap.
+	OnBootstrap func(ctx context.Context, tx *store.Tx, adminID string) error
 	// OnUserCreated runs inside the transaction that creates a human account:
-	// the setup admin (after OnSetup), an invite redemption and a registration.
+	// the bootstrap admin (after OnBootstrap), an invite redemption and a registration.
 	// An error aborts that transaction. nil means no-op.
 	OnUserCreated func(ctx context.Context, tx *store.Tx, userID string) error
 	// LoginLimiter and APILimiter replace the default rate limiters.
 	LoginLimiter *LoginLimiter
 	APILimiter   *BucketLimiter
+	// RegisterLimiter replaces the per-IP limit on sign-up attempts (register
+	// and device-register); nil means 20 attempts per IP per hour.
+	RegisterLimiter *FailureLimiter
+	// AdminPassword fixes the password BootstrapAdmin sets instead of a
+	// generated one. Tests and the e2e build use it; empty means generate.
+	AdminPassword string
 }
 
 // Service is the auth domain service.
@@ -101,18 +106,18 @@ type Service struct {
 	// verify checks a password against an encoded hash. It is the hasher's
 	// Verify; tests wrap it to count password checks.
 	verify        func(ctx context.Context, password, encoded string) (bool, error)
-	onSetup       func(ctx context.Context, tx *store.Tx, adminID string) error
+	onBootstrap   func(ctx context.Context, tx *store.Tx, adminID string) error
 	onUserCreated func(ctx context.Context, tx *store.Tx, userID string) error
 	logins        *LoginLimiter
 	api           *BucketLimiter
+	signups       *FailureLimiter
 	devices       deviceState
 	handoffs      handoffStore
 
 	dummyOnce sync.Once
 	dummyHash string
 
-	setupMu   sync.Mutex
-	setupHash []byte // SHA-256 of the active setup token; nil when none
+	adminPassword string // fixed bootstrap password; empty means generate
 }
 
 // New returns a Service.
@@ -135,12 +140,21 @@ func New(o Options) (*Service, error) {
 	if o.APILimiter == nil {
 		o.APILimiter = NewAPILimiter(o.Now)
 	}
+	if o.RegisterLimiter == nil {
+		o.RegisterLimiter = NewFailureLimiter(o.Now, SignupIPMaxAttempts, SignupWindow)
+	}
 	hasher := NewHasher(o.Params, o.MaxConcurrentHashes)
-	return &Service{
+	svc := &Service{
 		db: o.DB, settings: o.Settings, dataDir: o.DataDir, now: o.Now, logger: o.Logger,
 		hasher: hasher, verify: hasher.Verify,
-		onSetup: o.OnSetup, onUserCreated: o.OnUserCreated, logins: o.LoginLimiter, api: o.APILimiter,
-	}, nil
+		onBootstrap: o.OnBootstrap, adminPassword: o.AdminPassword, onUserCreated: o.OnUserCreated, logins: o.LoginLimiter, api: o.APILimiter, signups: o.RegisterLimiter,
+	}
+	// Accounts from before display keys existed get theirs now; a failure
+	// only costs login-by-name for them, so it must not stop startup.
+	if err := svc.backfillDisplayKeys(context.Background()); err != nil {
+		o.Logger.Warn("backfill display keys", "err", err)
+	}
+	return svc, nil
 }
 
 // userCreated runs the OnUserCreated hook inside the transaction that created
@@ -154,6 +168,9 @@ func (s *Service) userCreated(ctx context.Context, tx *store.Tx, userID string) 
 	}
 	return nil
 }
+
+// Now returns the service clock; sign-up deadlines are judged against it.
+func (s *Service) Now() time.Time { return s.now() }
 
 // Settings returns the settings store the service reads.
 func (s *Service) Settings() *settings.Store { return s.settings }
@@ -187,12 +204,28 @@ func NormalizeUsername(s string) string { return strings.ToLower(strings.TrimSpa
 
 // newUserFields holds validated, normalized input for a new account.
 type newUserFields struct {
-	username    string
+	username    string // empty: derived from the display name at insert
 	displayName string
+	displayKey  string
 	password    string
+	// uniqueName makes insertUser reject a display name another active
+	// human already uses.
+	uniqueName bool
 }
 
-// validateNewUser checks the fields of a signup (setup, invite, register).
+// validateSignup validates an invite redemption: the
+// name-first form when name is set, the username form otherwise. Either way
+// the display name must be unique among active humans.
+func validateSignup(name, username, displayName, password string) (newUserFields, *ValidationError) {
+	if name != "" {
+		return validateNewName(name, password)
+	}
+	f, verr := validateNewUser(username, displayName, password)
+	f.uniqueName = true
+	return f, verr
+}
+
+// validateNewUser checks the fields of a signup (invite, register).
 func validateNewUser(username, displayName, password string) (newUserFields, *ValidationError) {
 	fields := map[string]string{}
 	f := newUserFields{username: NormalizeUsername(username), password: password}
@@ -207,27 +240,14 @@ func validateNewUser(username, displayName, password string) (newUserFields, *Va
 	if f.displayName == "" {
 		f.displayName = f.username
 	}
-	if err := ValidatePassword(password); err != nil {
-		var pe *PolicyError
-		if errors.As(err, &pe) {
-			fields["password"] = pe.Reason
-		}
+	f.displayKey = displayKey(f.displayName)
+	if why := passwordField(password); why != "" {
+		fields["password"] = why
 	}
 	if len(fields) > 0 {
 		return f, &ValidationError{Fields: fields}
 	}
 	return f, nil
-}
-
-func normalizeDisplayName(s string) (string, string) {
-	s = strings.TrimSpace(s)
-	if utf8.RuneCountInString(s) > maxDisplayNameLen {
-		return "", fmt.Sprintf("must be at most %d characters", maxDisplayNameLen)
-	}
-	if strings.IndexFunc(s, unicode.IsControl) >= 0 {
-		return "", "must not contain control characters"
-	}
-	return s, ""
 }
 
 // normalizeNote trims an invite note.

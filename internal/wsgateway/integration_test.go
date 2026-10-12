@@ -35,8 +35,8 @@ func TestRouteCookieSessionAndChatEvents(t *testing.T) {
 	cs := chat.New(db, st)
 	svc, err := auth.New(auth.Options{
 		DB: db, Settings: st, DataDir: dir,
-		Params:  auth.Params{Time: 1, MemoryKiB: 8, Threads: 1, SaltLen: 16, KeyLen: 32},
-		OnSetup: cs.OnSetupTx, OnUserCreated: cs.OnUserCreatedTx,
+		Params:      auth.Params{Time: 1, MemoryKiB: 8, Threads: 1, SaltLen: 16, KeyLen: 32},
+		OnBootstrap: cs.OnBootstrapTx, OnUserCreated: cs.OnUserCreatedTx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -51,15 +51,13 @@ func TestRouteCookieSessionAndChatEvents(t *testing.T) {
 		db.Close()
 	})
 
-	setupToken, err := svc.InitSetup(ctx)
+	adminPassword, err := svc.BootstrapAdmin(ctx)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("BootstrapAdmin: %v", err)
 	}
-	res, err := svc.Setup(ctx, auth.SetupInput{
-		Token: setupToken, Username: "admin", Password: "plum-lantern-quietly-42", DisplayName: "Admin", InstanceName: "Home", IP: "127.0.0.1",
-	})
+	res, err := svc.Login(ctx, auth.LoginInput{Username: auth.BootstrapAdminUsername, Password: adminPassword, IP: "127.0.0.1"})
 	if err != nil {
-		t.Fatalf("Setup: %v", err)
+		t.Fatalf("Login: %v", err)
 	}
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + protocol.WSPath
 	header := func(origin string) http.Header {

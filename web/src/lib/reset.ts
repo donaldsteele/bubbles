@@ -20,7 +20,7 @@ let deferredNavigation = false;
 async function whenServing(): Promise<void> {
   for (let i = 0; i < 120; i++) {
     try {
-      const res = await fetch('/api/v1/setup/status', { cache: 'no-store' });
+      const res = await fetch('/api/v1/status', { cache: 'no-store' });
       if (res.status !== 503) return;
     } catch {
       // the server is restarting its listeners
@@ -46,7 +46,7 @@ export function setPushUnsubscribe(fn: (() => Promise<void> | void) | null): voi
 
 /**
  * The admin who runs a reset from this tab holds the navigation and the notice:
- * the 4010 close arrives before the answer that carries the new setup token,
+ * the 4010 close arrives before the answer that carries the new admin password,
  * and the page must stay until it is shown. Releasing runs a deferred
  * navigation unless `navigate` is false.
  */

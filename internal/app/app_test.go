@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/donaldsteele/bubbles/internal/audit"
+	"github.com/donaldsteele/bubbles/internal/auth"
 	"github.com/donaldsteele/bubbles/internal/config"
 	"github.com/donaldsteele/bubbles/internal/settings"
 	"github.com/donaldsteele/bubbles/internal/tlsca"
@@ -281,6 +282,8 @@ func TestServesHTTPSAndOnboarding(t *testing.T) {
 		"https://127.0.0.1:" + strconv.Itoa(h.app.HTTPSPort()) + "/",
 		"http://" + h.app.HTTPAddr().String() + "/",
 		h.app.Certs().CA().Fingerprint(),
+		"Sign in as:   admin",
+		"Password:     ",
 	} {
 		if !strings.Contains(banner, want) {
 			t.Errorf("banner lacks %q:\n%s", want, banner)
@@ -417,50 +420,62 @@ func TestNewFailsCleanlyWhenPortTaken(t *testing.T) {
 	}
 }
 
-// TestFirstRunSetupEndToEnd covers the wiring of setup token, auth routes,
-// settings (instance name) and onboarding over real TLS.
-func TestFirstRunSetupEndToEnd(t *testing.T) {
+// TestFirstStartBootstrapsAdmin covers the wiring of the first start: the
+// generated admin password in the banner and in admin-password.txt, sign-in
+// over the auth routes, #general, the instance name on the onboarding page,
+// and the password file going away when the admin changes the password.
+func TestFirstStartBootstrapsAdmin(t *testing.T) {
 	cfg := testConfig(t)
-	h := start(t, cfg)
+	h := startWith(t, cfg, func(o *Options) { o.AuthParams = cheapParams })
 	httpsBase := "https://" + h.app.HTTPSAddr().String()
 	httpBase := "http://" + h.app.HTTPAddr().String()
+	path := filepath.Join(cfg.DataDir, auth.AdminPasswordFile)
 
-	// The banner prints the token; the same token sits in setup-token.txt.
-	var banner string
-	deadline := time.Now().Add(10 * time.Second)
-	for !strings.Contains(banner, "setup token") && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-		banner = h.stderr.String()
+	// The banner prints the password; the same one sits in admin-password.txt.
+	// Run prints the banner once the listeners are up.
+	waitFor(t, "the banner to show the admin password", func() bool { return strings.Contains(h.stderr.String(), "Password:     ") })
+	banner := h.stderr.String()
+	const marker = "Password:     "
+	at := strings.Index(banner, marker)
+	if at < 0 || !strings.Contains(banner, "Sign in as:   admin") {
+		t.Fatalf("banner does not show the admin sign-in:\n%s", banner)
 	}
-	file, err := os.ReadFile(filepath.Join(cfg.DataDir, "setup-token.txt"))
-	if err != nil {
-		t.Fatalf("setup-token.txt: %v", err)
+	password := strings.Fields(banner[at+len(marker):])[0]
+	if len(password) != 19 {
+		t.Fatalf("banner password %q, want 19 characters", password)
 	}
-	token := strings.TrimSpace(string(file))
-	if len(token) != 52 || !strings.Contains(banner, token) {
-		t.Fatalf("token %q not in banner:\n%s", token, banner)
+	file := readFile(t, path)
+	if want := "username: admin\npassword: " + password + "\n"; !strings.HasSuffix(file, want) || !strings.HasPrefix(file, "#") {
+		t.Fatalf("admin-password.txt = %q, want it to end with %q", file, want)
+	}
+	if !strings.Contains(banner, path) {
+		t.Errorf("banner does not name %s:\n%s", path, banner)
+	}
+	if runtime.GOOS != "windows" {
+		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("admin-password.txt mode = %v, %v, want 0600", fi.Mode().Perm(), err)
+		}
 	}
 
-	post := func(path, body string) (*http.Response, []byte) {
+	post := func(path, body string, cookie *http.Cookie) (*http.Response, []byte) {
 		req, _ := http.NewRequest(http.MethodPost, httpsBase+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", httpsBase)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
 		res, err := h.httpsClient().Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return res, readAll(t, res)
 	}
-	setup := func(tok string) (*http.Response, []byte) {
-		return post("/api/v1/setup", `{"setup_token":"`+tok+`","username":"owner","password":"correct horse battery","display_name":"Owner","instance_name":"Test House"}`)
+	if res, body := post("/api/v1/auth/login", `{"username":"admin","password":"wrong"}`, nil); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong password: %d %s", res.StatusCode, body)
 	}
-
-	if res, body := setup("wrong"); res.StatusCode != http.StatusForbidden {
-		t.Fatalf("wrong token: %d %s", res.StatusCode, body)
-	}
-	res, body := setup(token)
-	if res.StatusCode != http.StatusCreated {
-		t.Fatalf("setup: %d %s", res.StatusCode, body)
+	res, body := post("/api/v1/auth/login", `{"username":"admin","password":"`+password+`"}`, nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("login: %d %s", res.StatusCode, body)
 	}
 	var cookie *http.Cookie
 	for _, c := range res.Cookies() {
@@ -471,14 +486,16 @@ func TestFirstRunSetupEndToEnd(t *testing.T) {
 	if cookie == nil || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/" {
 		t.Errorf("session cookie = %+v", cookie)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.DataDir, "setup-token.txt")); !os.IsNotExist(err) {
-		t.Errorf("setup-token.txt remains after setup: %v", err)
+	// The public status route needs no sign-in.
+	statusRes, err := h.httpsClient().Get(httpsBase + "/api/v1/status")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if res, body := setup(token); res.StatusCode != http.StatusConflict {
-		t.Errorf("second setup: %d %s", res.StatusCode, body)
+	if b := readAll(t, statusRes); statusRes.StatusCode != http.StatusOK || !strings.Contains(string(b), `"instance_name"`) {
+		t.Errorf("status: %d %s", statusRes.StatusCode, b)
 	}
 
-	// The chat API is wired: the setup session bootstraps into #general.
+	// The chat API is wired: the admin bootstraps into #general.
 	req, _ := http.NewRequest(http.MethodGet, httpsBase+"/api/v1/bootstrap", nil)
 	req.AddCookie(cookie)
 	res3, err := h.httpsClient().Do(req)
@@ -491,6 +508,13 @@ func TestFirstRunSetupEndToEnd(t *testing.T) {
 	}
 
 	// The instance name reaches the onboarding page.
+	req, _ = http.NewRequest(http.MethodPatch, httpsBase+"/api/v1/admin/settings", strings.NewReader(`{"instance_name":"Test House"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", httpsBase)
+	req.AddCookie(cookie)
+	if res, err := h.httpsClient().Do(req); err != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("set instance name: %v %v", res, err)
+	}
 	res2, err := plainClient().Get(httpBase + "/")
 	if err != nil {
 		t.Fatal(err)
@@ -498,13 +522,40 @@ func TestFirstRunSetupEndToEnd(t *testing.T) {
 	if page := readAll(t, res2); !strings.Contains(string(page), "Test House") {
 		t.Error("onboarding page does not show the instance name")
 	}
+
+	// A later start points to the file instead of printing the password.
+	h.stop(t)
+	h = startWith(t, cfg, func(o *Options) { o.AuthParams = cheapParams })
+	httpsBase = "https://" + h.app.HTTPSAddr().String()
+	waitFor(t, "the second banner", func() bool { return strings.Contains(h.stderr.String(), "CA fingerprint") })
+	if banner2 := h.stderr.String(); strings.Contains(banner2, password) || !strings.Contains(banner2, "The first admin password is in "+path) {
+		t.Errorf("second start banner:\n%s", banner2)
+	}
+
+	// Changing the admin password deletes the file.
+	res, body = post("/api/v1/auth/login", `{"username":"admin","password":"`+password+`"}`, nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("login after restart: %d %s", res.StatusCode, body)
+	}
+	cookie = nil
+	for _, c := range res.Cookies() {
+		if c.Name == "__Host-bubbles_session" {
+			cookie = c
+		}
+	}
+	if res, body := post("/api/v1/me/password", `{"current":"`+password+`","new":"a brand new passphrase"}`, cookie); res.StatusCode != http.StatusNoContent {
+		t.Fatalf("change password: %d %s", res.StatusCode, body)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("admin-password.txt remains after the password change: %v", err)
+	}
 }
 
 // TestPushIsWired: first run creates <data>/vapid.json (0600 where the OS has
 // modes) and the push endpoints answer from it once an admin enables web push.
 func TestPushIsWired(t *testing.T) {
 	cfg := testConfig(t)
-	h := start(t, cfg)
+	h := startCheap(t, cfg)
 	base := "https://" + h.app.HTTPSAddr().String()
 
 	raw, err := os.ReadFile(filepath.Join(cfg.DataDir, "vapid.json"))
@@ -527,25 +578,7 @@ func TestPushIsWired(t *testing.T) {
 		}
 	}
 
-	token := strings.TrimSpace(readFile(t, filepath.Join(cfg.DataDir, "setup-token.txt")))
-	req, _ := http.NewRequest(http.MethodPost, base+"/api/v1/setup",
-		strings.NewReader(`{"setup_token":"`+token+`","username":"owner","password":"correct horse battery","display_name":"Owner","instance_name":"Test House"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", base)
-	res, err := h.httpsClient().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	readAll(t, res)
-	var cookie *http.Cookie
-	for _, c := range res.Cookies() {
-		if c.Name == "__Host-bubbles_session" {
-			cookie = c
-		}
-	}
-	if cookie == nil {
-		t.Fatalf("no session cookie after setup (status %d)", res.StatusCode)
-	}
+	cookie := signIn(t, h, ownerPassword).cookie
 	get := func() (int, string) {
 		req, _ := http.NewRequest(http.MethodGet, base+"/api/v1/push/vapid-public-key", nil)
 		req.AddCookie(cookie)

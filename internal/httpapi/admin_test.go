@@ -100,14 +100,11 @@ func TestAdminOverview(t *testing.T) {
 
 func TestAdminOverviewIsolationHintWhenOnlyLoopbackConnected(t *testing.T) {
 	e := newEnv(t)
-	token, err := e.svc.InitSetup(e.ctx)
-	if err != nil {
+	if _, err := e.svc.BootstrapAdmin(e.ctx); err != nil {
 		t.Fatal(err)
 	}
 	local := e.client("127.0.0.1")
-	wantStatus(t, local.do(http.MethodPost, "/api/v1/setup", protocol.SetupRequest{
-		SetupToken: token, Username: "admin", Password: goodPassword, DisplayName: "Admin", InstanceName: "Home",
-	}), http.StatusCreated, "")
+	wantStatus(t, local.do(http.MethodPost, "/api/v1/auth/login", protocol.LoginRequest{Username: "admin", Password: goodPassword}), http.StatusOK, "")
 	rec := local.do(http.MethodGet, adminAPIPath+"/overview", nil)
 	wantStatus(t, rec, http.StatusOK, "")
 	if !decodeBody[protocol.AdminOverview](t, rec).ClientIsolationHint {
@@ -164,12 +161,13 @@ func TestAdminSettingsGetPatchAndAudit(t *testing.T) {
 	rec = admin.do(http.MethodGet, adminAPIPath+"/audit?action=settings.update&limit=50&cursor="+url.QueryEscape(*p1.NextCursor), nil)
 	wantStatus(t, rec, http.StatusOK, "")
 	p2 := decodeBody[protocol.AuditPage](t, rec)
-	if len(p2.Items) != 5 || p2.NextCursor != nil {
+	if len(p2.Items) != 6 || p2.NextCursor != nil {
 		t.Fatalf("page 2 = %d items, cursor %v", len(p2.Items), p2.NextCursor)
 	}
 	seen := map[string]bool{}
 	for _, it := range append(p1.Items, p2.Items...) {
-		if it.Action != "settings.update" || it.ActorKind != "user" || seen[it.ID] {
+		// The bootstrap deadline is written by the console actor.
+		if it.Action != "settings.update" || (it.ActorKind != "user" && it.TargetID != "open_registration_until") || seen[it.ID] {
 			t.Errorf("entry = %+v", it)
 		}
 		seen[it.ID] = true

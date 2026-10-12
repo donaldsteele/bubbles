@@ -129,20 +129,90 @@ func (s *Service) DeviceLogin(ctx context.Context, in DeviceLoginInput) (*Device
 				return fmt.Errorf("rehash password: %w", err)
 			}
 		}
-		scopes, _ := json.Marshal(protocol.DeviceScopes)
-		id := tx.NewID()
-		if _, err := tx.Exec(`INSERT INTO device_tokens (id, user_id, name, token_hash, prefix, scopes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			id, user.ID, name, HashToken(secret), secret[:DevicePrefixLen], string(scopes), tx.Now()); err != nil {
-			return fmt.Errorf("insert device token: %w", err)
-		}
+		id, err := issueDeviceTokenTx(tx, user.ID, name, secret, in.IP)
 		res = DeviceLoginResult{Token: secret, DeviceID: id, User: user}
-		_, err := audit.Write(tx, audit.User(user.ID, in.IP).Entry(audit.ActionDeviceLogin, "device", id, map[string]string{"prefix": secret[:DevicePrefixLen]}))
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	res.HandoffCode, err = s.newHandoff(user.ID, res.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// issueDeviceTokenTx stores the device token secret for userID and audits the
+// device login. It returns the device id.
+func issueDeviceTokenTx(tx *store.Tx, userID, name, secret, ip string) (string, error) {
+	scopes, _ := json.Marshal(protocol.DeviceScopes)
+	id := tx.NewID()
+	if _, err := tx.Exec(`INSERT INTO device_tokens (id, user_id, name, token_hash, prefix, scopes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, userID, name, HashToken(secret), secret[:DevicePrefixLen], string(scopes), tx.Now()); err != nil {
+		return "", fmt.Errorf("insert device token: %w", err)
+	}
+	_, err := audit.Write(tx, audit.User(userID, ip).Entry(audit.ActionDeviceLogin, "device", id, map[string]string{"prefix": secret[:DevicePrefixLen]}))
+	return id, err
+}
+
+// DeviceRegisterInput is the input of DeviceRegister.
+type DeviceRegisterInput struct {
+	Name       string
+	Password   string
+	DeviceName string
+	UserAgent  string
+	IP         string
+}
+
+// DeviceRegister creates a member account like Register (same window, same
+// per-IP limit, unique name) and registers a tray device for it in the same
+// transaction: it returns the new device token and a one-time handoff code.
+func (s *Service) DeviceRegister(ctx context.Context, in DeviceRegisterInput) (*DeviceLoginResult, error) {
+	if err := s.signupAllowed(in.IP); err != nil {
+		return nil, err
+	}
+	devName, nameOK := cleanDeviceName(in.DeviceName)
+	f, verr := validateNewName(in.Name, in.Password)
+	if !nameOK {
+		if verr == nil {
+			verr = &ValidationError{Fields: map[string]string{}}
+		}
+		verr.Fields["device_name"] = "must be 1 to 64 printable characters"
+	}
+	if verr != nil {
+		return nil, verr
+	}
+	pwHash, err := s.hasher.Hash(ctx, f.password)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := NewToken()
+	if err != nil {
+		return nil, err
+	}
+	secret := protocol.AppTokenPrefix + raw
+	var res DeviceLoginResult
+	err = s.db.Do(ctx, func(tx *store.Tx) error {
+		user, err := insertUser(tx, f, RoleMember, pwHash)
+		if err != nil {
+			return err
+		}
+		if err := s.userCreated(ctx, tx, user.ID); err != nil {
+			return err
+		}
+		if _, err := audit.Write(tx, audit.User(user.ID, in.IP).Entry(audit.ActionRegister, "user", user.ID,
+			map[string]string{"username": user.Username})); err != nil {
+			return err
+		}
+		id, err := issueDeviceTokenTx(tx, user.ID, devName, secret, in.IP)
+		res = DeviceLoginResult{Token: secret, DeviceID: id, User: user}
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	res.HandoffCode, err = s.newHandoff(res.User.ID, res.DeviceID)
 	if err != nil {
 		return nil, err
 	}

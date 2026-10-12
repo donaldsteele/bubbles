@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -61,7 +62,23 @@ func TestCAInstallFor(t *testing.T) {
 	}
 }
 
+// constrain gives a template bubbles-like critical name constraints.
+func constrain(c *x509.Certificate) {
+	c.PermittedDNSDomainsCritical = true
+	c.PermittedDNSDomains = []string{"local", "home.arpa", "lan", "internal", "localdomain", "localhost", "basement-pc", "chat.example.com"}
+	for _, p := range caPrivatePrefixes {
+		_, n, _ := net.ParseCIDR(p.String())
+		c.PermittedIPRanges = append(c.PermittedIPRanges, n)
+	}
+}
+
+// testCA builds a self-signed CA (or leaf); a CA gets bubbles-like constraints.
 func testCA(t *testing.T, isCA bool) []byte {
+	t.Helper()
+	return testCAWith(t, isCA, constrain)
+}
+
+func testCAWith(t *testing.T, isCA bool, mod func(*x509.Certificate)) []byte {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -72,11 +89,88 @@ func testCA(t *testing.T, isCA bool) []byte {
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
 		IsCA: isCA, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
 	}
+	if mod != nil {
+		mod(tmpl)
+	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return der
+}
+
+func TestCheckCAConstraints(t *testing.T) {
+	only := func(dns []string, ips ...string) func(*x509.Certificate) {
+		return func(c *x509.Certificate) {
+			c.PermittedDNSDomainsCritical = true
+			c.PermittedDNSDomains = dns
+			for _, s := range ips {
+				_, n, err := net.ParseCIDR(s)
+				if err != nil {
+					panic(err)
+				}
+				c.PermittedIPRanges = append(c.PermittedIPRanges, n)
+			}
+		}
+	}
+	tests := []struct {
+		name string
+		mod  func(*x509.Certificate)
+		ok   bool
+	}{
+		{"bubbles-like", constrain, true},
+		{"no constraints", func(*x509.Certificate) {}, false},
+		{"not critical", func(c *x509.Certificate) {
+			constrain(c)
+			c.PermittedDNSDomainsCritical = false
+		}, false},
+		{"empty DNS list", only(nil, "10.0.0.0/8"), false},
+		{"com", only([]string{"com"}, "10.0.0.0/8"), false},
+		{"co.uk", only([]string{"co.uk"}, "10.0.0.0/8"), false},
+		{"github.io", only([]string{"github.io"}, "10.0.0.0/8"), false},
+		{"empty name", only([]string{""}, "10.0.0.0/8"), false},
+		{"home.arpa", only([]string{"home.arpa"}, "10.0.0.0/8"), true},
+		{"pc.lan", only([]string{"pc.lan"}, "10.0.0.0/8"), true},
+		{"single label host", only([]string{"basement-pc"}, "10.0.0.0/8"), true},
+		{"no IP ranges", only([]string{"lan"}), false},
+		{"0.0.0.0/0", only([]string{"lan"}, "0.0.0.0/0"), false},
+		{"8.8.8.0/24", only([]string{"lan"}, "8.8.8.0/24"), false},
+		{"private mixed with public", only([]string{"lan"}, "10.0.0.0/8", "8.8.8.0/24"), false},
+		{"192.168.1.0/24", only([]string{"lan"}, "192.168.1.0/24"), true},
+		{"fe80::/10", only([]string{"lan"}, "fe80::/10"), true},
+		{"2001:db8::/32", only([]string{"lan"}, "2001:db8::/32"), false},
+		{"::/0", only([]string{"lan"}, "::/0"), false},
+		{"excluded does not help", func(c *x509.Certificate) {
+			_, n, _ := net.ParseCIDR("10.0.0.0/8")
+			c.ExcludedIPRanges = []*net.IPNet{n}
+			c.ExcludedDNSDomains = []string{"com"}
+		}, false},
+	}
+	for _, tc := range tests {
+		cert, err := x509.ParseCertificate(testCAWith(t, true, tc.mod))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		err = CheckCAConstraints(cert)
+		if tc.ok && err != nil {
+			t.Errorf("%s: refused: %v", tc.name, err)
+		}
+		if !tc.ok && !errors.Is(err, ErrUnconstrainedCA) {
+			t.Errorf("%s: err = %v, want ErrUnconstrainedCA", tc.name, err)
+		}
+	}
+}
+
+func TestWriteCAPEMRefusesUnconstrainedCA(t *testing.T) {
+	dir := t.TempDir()
+	der := testCAWith(t, true, nil)
+	_, err := WriteCAPEM(dir, der, FingerprintOf(der))
+	if !errors.Is(err, ErrUnconstrainedCA) {
+		t.Fatalf("err = %v, want ErrUnconstrainedCA", err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatal("an unconstrained CA was written")
+	}
 }
 
 func TestWriteCAPEMOnlyWritesTheConfirmedCA(t *testing.T) {

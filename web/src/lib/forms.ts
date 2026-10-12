@@ -12,7 +12,6 @@ export function validateUsername(v: string): string {
 
 export function validatePassword(v: string): string {
   if (v === '') return t.common.required;
-  if (v.length < 10) return t.validation.passwordShort;
   if (v.length > 128) return t.validation.passwordLong;
   return '';
 }
@@ -36,4 +35,12 @@ export function failureFrom(err: unknown, byStatus: Record<number, string> = {})
   if (err.status === 0) return { fields: {}, form: t.common.networkError };
   if (err.status === 429) return { fields: {}, form: t.common.rateLimited };
   return { fields: {}, form: byStatus[err.status] ?? err.message ?? t.common.genericError };
+}
+
+/** failureFrom for the name + password sign-up forms: a taken name reads the same everywhere. */
+export function signupFailure(err: unknown, byStatus: Record<number, string> = {}): FormFailure {
+  if (err instanceof ApiError && err.status === 409) {
+    return { fields: { name: t.register.taken }, form: '' };
+  }
+  return failureFrom(err, byStatus);
 }

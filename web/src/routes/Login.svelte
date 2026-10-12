@@ -1,15 +1,20 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { api, call } from '../lib/api/client';
-  import { completeSignIn } from '../lib/boot';
+  import { completeSignIn, refreshStatus } from '../lib/boot';
   import { failureFrom, validateRequired } from '../lib/forms';
   import { t } from '../lib/i18n/en';
   import FormField from '../components/forms/FormField.svelte';
+  import { session } from '../lib/state/session.svelte';
 
   let username = $state('');
   let password = $state('');
   let errors = $state<Record<string, string>>({});
   let formError = $state('');
   let submitting = $state(false);
+
+  // The sign-up link follows the server's current state, not the one at page load.
+  onMount(() => void refreshStatus().catch(() => {}));
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
@@ -38,7 +43,7 @@
     {#if formError}<p class="form-error" role="alert">{formError}</p>{/if}
     <FormField
       id="login-username"
-      label={t.fields.username}
+      label={t.fields.nameOrUsername}
       bind:value={username}
       error={errors.username}
       autocomplete="username"
@@ -59,4 +64,9 @@
       {submitting ? t.common.submitting : t.login.submit}
     </button>
   </form>
+  {#if session.registrationOpen}
+    <p>{t.login.newHere} <a href="/register">{t.login.createAccountLink}</a></p>
+  {:else}
+    <p class="hint">{t.login.askForInvite}</p>
+  {/if}
 </main>

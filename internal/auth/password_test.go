@@ -99,15 +99,12 @@ func TestValidatePassword(t *testing.T) {
 		name, pw, want string
 	}{
 		{"ok", goodPassword, ""},
-		{"exactly 10", "j4Kq9vXz2M", ""},
-		{"9 runes", "abcdefghi", "at least 10"},
-		{"empty", "", "at least 10"},
-		{"10 multibyte runes", strings.Repeat("é", 10), ""},
-		{"9 multibyte runes", strings.Repeat("é", 9), "at least 10"},
+		{"one character", "a", ""},
+		{"common", "password1", ""},
+		{"short multibyte", "é", ""},
+		{"empty", "", "is required"},
 		{"128 runes", strings.Repeat("a", 128), ""},
 		{"129 runes", strings.Repeat("a", 129), "at most 128"},
-		{"common numeric", "1234567890", "too common"},
-		{"common mixed case", "QwertyUiop", "too common"},
 	}
 	for _, tt := range tests {
 		err := ValidatePassword(tt.pw)
@@ -121,21 +118,6 @@ func TestValidatePassword(t *testing.T) {
 		if !errors.As(err, &pe) || !strings.Contains(pe.Reason, tt.want) {
 			t.Errorf("%s: err = %v, want reason containing %q", tt.name, err, tt.want)
 		}
-	}
-}
-
-func TestCommonPasswordList(t *testing.T) {
-	set := commonPasswordSet
-	if len(set) < 9000 {
-		t.Fatalf("list has %d entries", len(set))
-	}
-	for _, w := range []string{"password", "123456", "qwerty", "1234567890"} {
-		if !IsCommonPassword(w) {
-			t.Errorf("%q not in list", w)
-		}
-	}
-	if IsCommonPassword("correct horse battery") {
-		t.Error("passphrase flagged as common")
 	}
 }
 

@@ -12,8 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -44,9 +42,10 @@ func startServer(t *testing.T) *server {
 	}
 	cfg := config.Config{DataDir: dir, HTTPSAddr: "127.0.0.1:0", HTTPAddr: "127.0.0.1:0", MDNSName: "bubbles", NoMDNS: true}
 	a, err := app.New(context.Background(), cfg, nil, app.Options{
-		Stderr:   io.Discard,
-		LANAddrs: func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr("192.168.1.20")}, nil },
-		Hostname: func() (string, error) { return "test-host", nil },
+		Stderr:        io.Discard,
+		AdminPassword: adminPassword,
+		LANAddrs:      func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr("192.168.1.20")}, nil },
+		Hostname:      func() (string, error) { return "test-host", nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -80,18 +79,11 @@ func startServer(t *testing.T) *server {
 	}
 	s.fp = fp
 
-	token, err := os.ReadFile(filepath.Join(dir, "setup-token.txt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	res := s.rawDo("POST", "/api/v1/setup", protocol.SetupRequest{
-		SetupToken: strings.TrimSpace(string(token)), Username: "admin", Password: adminPassword,
-		DisplayName: "Admin", InstanceName: "Test Home",
-	})
+	res := s.rawDo("POST", "/api/v1/auth/login", protocol.LoginRequest{Username: "admin", Password: adminPassword})
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusCreated {
+	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
-		t.Fatalf("setup: %d %s", res.StatusCode, b)
+		t.Fatalf("login: %d %s", res.StatusCode, b)
 	}
 	for _, c := range res.Cookies() {
 		if strings.Contains(c.Name, "session") {
@@ -99,7 +91,12 @@ func startServer(t *testing.T) *server {
 		}
 	}
 	if s.cookie == nil {
-		t.Fatal("setup returned no session cookie")
+		t.Fatal("login returned no session cookie")
+	}
+	name := s.rawDo("PATCH", "/api/v1/admin/settings", map[string]string{"instance_name": "Test Home"})
+	name.Body.Close()
+	if name.StatusCode != http.StatusOK {
+		t.Fatalf("set instance name: %d", name.StatusCode)
 	}
 	return s
 }

@@ -16,6 +16,11 @@ const (
 	APIRatePerSecond     = 20
 	APIBurst             = 50
 
+	// SignupIPMaxAttempts is how many sign-up attempts (register and
+	// device-register) one IP address may make within SignupWindow.
+	SignupIPMaxAttempts = 20
+	SignupWindow        = time.Hour
+
 	// limiterMaxKeys caps the memory of every limiter: when exceeded,
 	// expired entries are dropped, then the oldest ones.
 	limiterMaxKeys = 10000

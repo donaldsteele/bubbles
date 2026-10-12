@@ -1,5 +1,5 @@
 // Service worker: app-shell precache, offline fallback, Web Push display.
-// It never fetches on push and never caches API, hook, auth or setup traffic.
+// It never fetches on push and never caches API, hook, auth or status traffic.
 import {
   cleanupOutdatedCaches,
   createHandlerBoundToURL,
@@ -66,7 +66,7 @@ registerRoute(
 // Any other navigation gets the cached shell; the client router takes it from there.
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL('/index.html'), {
-    denylist: [/^\/api(\/|$)/, /^\/hooks(\/|$)/, /^\/auth(\/|$)/, /^\/setup/],
+    denylist: [/^\/api(\/|$)/, /^\/hooks(\/|$)/, /^\/auth(\/|$)/],
   }),
 );
 

@@ -1,8 +1,8 @@
 // Package reset implements the two destructive lifecycle operations of a
 // bubbles server (pipeline steps 19 and 20): clear content, which deletes
 // every message, file, alert and event but keeps accounts, channels, apps and
-// settings, and factory reset, which wipes the data directory back to the
-// setup wizard.
+// settings, and factory reset, which wipes the data directory back to a
+// first start.
 //
 // A reset is an ordered list of idempotent steps journaled in
 // <data>/reset-pending.json: the marker is written before the first step,
@@ -18,15 +18,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
 
 	"github.com/donaldsteele/bubbles/internal/audit"
-	"github.com/donaldsteele/bubbles/internal/auth"
 	"github.com/donaldsteele/bubbles/internal/store"
 	"github.com/donaldsteele/bubbles/pkg/protocol"
 )
@@ -80,8 +77,10 @@ type Result struct {
 	Mode Mode
 	// Epoch is the new instance epoch (content).
 	Epoch int64
-	// SetupToken is the new one-time setup token (factory).
-	SetupToken string
+	// AdminPassword is the password of the new admin account (factory). The
+	// reset itself leaves it empty: the server fills it in after its
+	// rebuild bootstrapped the account.
+	AdminPassword string
 	// CARotated reports whether the CA was replaced (factory).
 	CARotated bool
 }
@@ -222,19 +221,6 @@ func AuditDenied(ctx context.Context, db *store.DB, actor audit.Actor, mode Mode
 	})
 }
 
-// AwaitingSetup reports whether db was recreated by a factory reset and no
-// one has completed setup since: the server then keeps the setup token the
-// reset issued instead of replacing it.
-func AwaitingSetup(ctx context.Context, db *store.DB) (bool, error) {
-	var ok bool
-	err := db.Read().QueryRowContext(ctx, `SELECT
-		NOT EXISTS (SELECT 1 FROM users) AND EXISTS (SELECT 1 FROM audit_log WHERE action = ?)`, ActionFactoryReset).Scan(&ok)
-	if err != nil {
-		return false, fmt.Errorf("check reset state: %w", err)
-	}
-	return ok, nil
-}
-
 // runner executes the steps of one marker.
 type runner struct {
 	dataDir string
@@ -245,7 +231,6 @@ type runner struct {
 	db       *store.DB // the database the steps use
 	own      bool      // db was opened by the runner, which closes it
 	released bool      // Hooks.DB is closed
-	token    string    // setup token written by this run
 }
 
 func newRunner(dataDir string, h Hooks) *runner {
@@ -313,15 +298,6 @@ func (r *runner) resume(ctx context.Context) (*Result, error) {
 		}
 	}
 	res := &Result{Mode: r.m.Mode, Epoch: r.m.Epoch, CARotated: r.m.RotateCA}
-	if r.m.Mode == ModeFactory {
-		res.SetupToken = r.token
-		if res.SetupToken == "" {
-			b, err := os.ReadFile(filepath.Join(r.dataDir, auth.SetupTokenFile))
-			if err == nil {
-				res.SetupToken = strings.TrimSpace(string(b))
-			}
-		}
-	}
 	if err := r.closeDB(); err != nil {
 		return nil, err
 	}

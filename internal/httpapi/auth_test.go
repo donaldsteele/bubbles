@@ -110,7 +110,7 @@ func newEnvLogged(t *testing.T, logger *slog.Logger) *env {
 	t.Cleanup(ps.Close)
 	svc, err := auth.New(auth.Options{
 		DB: db, Settings: st, DataDir: dir, Now: clock.Now, Params: cheapParams,
-		OnSetup: cs.OnSetupTx, OnUserCreated: cs.OnUserCreatedTx,
+		OnBootstrap: cs.OnBootstrapTx, OnUserCreated: cs.OnUserCreatedTx, AdminPassword: goodPassword,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -224,18 +224,21 @@ func (e *env) count(query string, args ...any) int {
 	return n
 }
 
-// setup completes first-run setup through the API and returns the admin's client.
+// setup bootstraps the admin (password goodPassword), names the instance
+// "Home", signs in through the API and returns the admin's client.
 func (e *env) setup() *client {
 	e.t.Helper()
-	token, err := e.svc.InitSetup(e.ctx)
-	if err != nil {
-		e.t.Fatal(err)
+	pw, err := e.svc.BootstrapAdmin(e.ctx)
+	if err != nil || pw != goodPassword {
+		e.t.Fatalf("BootstrapAdmin = %q, %v", pw, err)
 	}
 	c := e.client("")
-	rec := c.do(http.MethodPost, "/api/v1/setup", protocol.SetupRequest{
-		SetupToken: token, Username: "admin", Password: goodPassword, DisplayName: "Admin", InstanceName: "Home",
-	})
-	wantStatus(e.t, rec, http.StatusCreated, "")
+	rec := c.do(http.MethodPost, "/api/v1/auth/login", protocol.LoginRequest{Username: "admin", Password: goodPassword})
+	wantStatus(e.t, rec, http.StatusOK, "")
+	adminID := decodeBody[protocol.AuthResponse](e.t, rec).User.ID
+	if err := e.st.Set(e.ctx, audit.User(adminID, ""), settings.KeyInstanceName, "Home"); err != nil {
+		e.t.Fatal(err)
+	}
 	return c
 }
 
@@ -252,104 +255,54 @@ func (e *env) addUser(username string, ip string) *client {
 	return c
 }
 
-func TestSetupStatus(t *testing.T) {
+func TestStatusIsPublic(t *testing.T) {
 	e := newEnv(t)
 	c := e.client("")
-	rec := c.do(http.MethodGet, "/api/v1/setup/status", nil)
+	rec := c.do(http.MethodGet, "/api/v1/status", nil)
 	wantStatus(t, rec, http.StatusOK, "")
-	if !decodeBody[protocol.SetupStatus](t, rec).NeedsSetup {
-		t.Error("needs_setup = false on an empty instance")
+	if got := decodeBody[protocol.ServerStatus](t, rec).InstanceName; got != e.st.InstanceName() {
+		t.Errorf("instance_name = %q, want %q", got, e.st.InstanceName())
 	}
 	e.setup()
-	rec = c.do(http.MethodGet, "/api/v1/setup/status", nil)
-	if decodeBody[protocol.SetupStatus](t, rec).NeedsSetup {
-		t.Error("needs_setup = true after setup")
+	anon := e.client("")
+	rec = anon.do(http.MethodGet, "/api/v1/status", nil)
+	wantStatus(t, rec, http.StatusOK, "")
+	if got := decodeBody[protocol.ServerStatus](t, rec).InstanceName; got != "Home" {
+		t.Errorf("instance_name = %q, want Home", got)
 	}
 }
 
-func TestSetupWithoutOrWithWrongTokenIs403(t *testing.T) {
+func TestBootstrapAdminWorksOnlyOnce(t *testing.T) {
 	e := newEnv(t)
-	if _, err := e.svc.InitSetup(e.ctx); err != nil {
-		t.Fatal(err)
-	}
-	c := e.client("")
-	valid := protocol.SetupRequest{Username: "admin", Password: goodPassword, InstanceName: "Home"}
-	for _, tok := range []string{"", strings.Repeat("a", 52)} {
-		req := valid
-		req.SetupToken = tok
-		wantStatus(t, c.do(http.MethodPost, "/api/v1/setup", req), http.StatusForbidden, CodeForbidden)
-	}
-	// A body without the field at all behaves the same.
-	wantStatus(t, c.do(http.MethodPost, "/api/v1/setup", `{"username":"admin","password":"`+goodPassword+`","instance_name":"Home"}`), http.StatusForbidden, CodeForbidden)
-	if n := e.count(`SELECT COUNT(*) FROM users`); n != 0 {
-		t.Errorf("%d users created by rejected setups", n)
-	}
-	if len(c.cookies) != 0 {
-		t.Error("a cookie was set for a rejected setup")
-	}
-}
-
-func TestSetupWorksOnlyOnce(t *testing.T) {
-	e := newEnv(t)
-	token, err := e.svc.InitSetup(e.ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tokenFile := filepath.Join(e.dataDir, auth.SetupTokenFile)
-	if _, err := os.Stat(tokenFile); err != nil {
-		t.Fatalf("token file: %v", err)
-	}
-	c := e.client("")
-	req := protocol.SetupRequest{SetupToken: token, Username: "Admin", Password: goodPassword, DisplayName: "The Admin", InstanceName: "Home Chat"}
-	rec := c.do(http.MethodPost, "/api/v1/setup", req)
-	wantStatus(t, rec, http.StatusCreated, "")
-	me := decodeBody[protocol.AuthResponse](t, rec).User
-	if me.Username != "admin" || me.Role != "admin" || me.DisplayName != "The Admin" || me.Kind != "human" {
+	c := e.setup()
+	me := decodeBody[protocol.Me](t, c.do(http.MethodGet, "/api/v1/me", nil))
+	if me.Username != "admin" || me.Role != "admin" || me.DisplayName != "Admin" || me.Kind != "human" {
 		t.Errorf("user = %+v", me)
 	}
-	if e.st.InstanceName() != "Home Chat" {
-		t.Errorf("instance_name = %q", e.st.InstanceName())
+	if _, err := os.Stat(filepath.Join(e.dataDir, auth.AdminPasswordFile)); err != nil {
+		t.Errorf("admin password file: %v", err)
 	}
-	if _, err := os.Stat(tokenFile); !os.IsNotExist(err) {
-		t.Errorf("token file not deleted: %v", err)
+	if pw, err := e.svc.BootstrapAdmin(e.ctx); err != nil || pw != "" {
+		t.Errorf("second BootstrapAdmin = %q, %v", pw, err)
 	}
-	// Logged in by the setup response itself.
-	wantStatus(t, c.do(http.MethodGet, "/api/v1/me", nil), http.StatusOK, "")
-
-	// Never again: right token, wrong token, any user -> 409.
-	other := e.client("192.168.1.99")
-	req.Username = "second"
-	wantStatus(t, other.do(http.MethodPost, "/api/v1/setup", req), http.StatusConflict, CodeConflict)
-	req.SetupToken = "wrong"
-	wantStatus(t, other.do(http.MethodPost, "/api/v1/setup", req), http.StatusConflict, CodeConflict)
 	if n := e.count(`SELECT COUNT(*) FROM users`); n != 1 {
 		t.Errorf("%d users, want 1", n)
 	}
-}
-
-func TestSetupValidationErrorsListFields(t *testing.T) {
-	e := newEnv(t)
-	token, _ := e.svc.InitSetup(e.ctx)
-	c := e.client("")
-	rec := c.do(http.MethodPost, "/api/v1/setup", protocol.SetupRequest{SetupToken: token, Username: "A", Password: "short", InstanceName: ""})
-	ed := wantStatus(t, rec, http.StatusBadRequest, CodeBadRequest)
-	fields := ed.FieldErrors()
-	for _, f := range []string{"username", "password", "instance_name"} {
-		if fields[f] == "" {
-			t.Errorf("no reason for %s in %v", f, fields)
-		}
+	// Changing the admin password through the API deletes the file.
+	wantStatus(t, c.do(http.MethodPost, "/api/v1/me/password", protocol.ChangePasswordRequest{Current: goodPassword, New: "a brand new passphrase"}), http.StatusNoContent, "")
+	if _, err := os.Stat(filepath.Join(e.dataDir, auth.AdminPasswordFile)); !os.IsNotExist(err) {
+		t.Errorf("admin password file survived the password change: %v", err)
 	}
-	// The token survives validation failures.
-	rec = c.do(http.MethodPost, "/api/v1/setup", protocol.SetupRequest{SetupToken: token, Username: "admin", Password: goodPassword, InstanceName: "Home"})
-	wantStatus(t, rec, http.StatusCreated, "")
 }
 
 func TestSessionCookieAttributesAndHashOnlyStorage(t *testing.T) {
 	e := newEnv(t)
-	token, _ := e.svc.InitSetup(e.ctx)
+	if _, err := e.svc.BootstrapAdmin(e.ctx); err != nil {
+		t.Fatal(err)
+	}
 	c := e.client("")
-	rec := c.do(http.MethodPost, "/api/v1/setup", protocol.SetupRequest{SetupToken: token, Username: "admin", Password: goodPassword, InstanceName: "Home"})
-	wantStatus(t, rec, http.StatusCreated, "")
+	rec := c.do(http.MethodPost, "/api/v1/auth/login", protocol.LoginRequest{Username: "admin", Password: goodPassword})
+	wantStatus(t, rec, http.StatusOK, "")
 
 	raw := rec.Header().Values("Set-Cookie")
 	if len(raw) != 1 {
@@ -387,8 +340,8 @@ func TestSessionCookieAttributesAndHashOnlyStorage(t *testing.T) {
 			t.Errorf("session token found in the database (%s)", q)
 		}
 	}
-	// No password or setup token in the audit trail either.
-	if n := e.count(`SELECT COUNT(*) FROM audit_log WHERE detail LIKE ? OR detail LIKE ?`, "%"+goodPassword+"%", "%"+token+"%"); n != 0 {
+	// No password in the audit trail either.
+	if n := e.count(`SELECT COUNT(*) FROM audit_log WHERE detail LIKE ?`, "%"+goodPassword+"%"); n != 0 {
 		t.Error("secret found in the audit log")
 	}
 }
@@ -490,20 +443,17 @@ func TestLoginLockoutPerIP(t *testing.T) {
 	}
 }
 
-func TestCommonAndWeakPasswordsRejected(t *testing.T) {
+func TestEmptyAndOversizedPasswordsRejected(t *testing.T) {
 	e := newEnv(t)
 	admin := e.setup()
-	if err := e.st.Set(e.ctx, audit.System, settings.KeyOpenRegistration, true); err != nil {
-		t.Fatal(err)
-	}
 	_, invite, _ := e.svc.CreateInvite(e.ctx, audit.Console, auth.CreateInviteInput{MaxUses: 10})
 	user, _ := e.svc.UserByUsername(e.ctx, "admin")
 	reset, _, _ := e.svc.CreateReset(e.ctx, audit.Console, user.ID)
 
-	for _, pw := range []string{"1234567890", "QWERTYUIOP", "short"} {
+	for _, pw := range []string{"", strings.Repeat("a", 129)} {
 		for name, rec := range map[string]*httptest.ResponseRecorder{
 			"accept":   e.client("").do(http.MethodPost, "/api/v1/invites/"+invite+"/accept", protocol.AcceptInviteRequest{Username: "newbie", Password: pw}),
-			"register": e.client("").do(http.MethodPost, "/api/v1/register", protocol.RegisterRequest{Username: "newbie", Password: pw}),
+			"register": e.client("").do(http.MethodPost, "/api/v1/register", protocol.RegisterRequest{Name: "newbie", Password: pw}),
 			"reset":    e.client("").do(http.MethodPost, "/api/v1/password-resets/"+reset, protocol.ResetPasswordRequest{Password: pw}),
 			"change":   admin.do(http.MethodPost, "/api/v1/me/password", protocol.ChangePasswordRequest{Current: goodPassword, New: pw}),
 		} {
@@ -586,11 +536,7 @@ func TestRegisterOnlyWhenOpen(t *testing.T) {
 	e := newEnv(t)
 	e.setup()
 	c := e.client("")
-	req := protocol.RegisterRequest{Username: "walkin", Password: goodPassword, DisplayName: "Walk In"}
-	wantStatus(t, c.do(http.MethodPost, "/api/v1/register", req), http.StatusForbidden, CodeForbidden)
-	if err := e.st.Set(e.ctx, audit.System, settings.KeyOpenRegistration, true); err != nil {
-		t.Fatal(err)
-	}
+	req := protocol.RegisterRequest{Name: "Walk In", Password: goodPassword}
 	rec := c.do(http.MethodPost, "/api/v1/register", req)
 	wantStatus(t, rec, http.StatusCreated, "")
 	if u := decodeBody[protocol.AuthResponse](t, rec).User; u.Role != "member" {
@@ -600,7 +546,7 @@ func TestRegisterOnlyWhenOpen(t *testing.T) {
 	if err := e.st.Set(e.ctx, audit.System, settings.KeyOpenRegistration, false); err != nil {
 		t.Fatal(err)
 	}
-	wantStatus(t, e.client("").do(http.MethodPost, "/api/v1/register", protocol.RegisterRequest{Username: "another", Password: goodPassword}), http.StatusForbidden, CodeForbidden)
+	wantStatus(t, e.client("").do(http.MethodPost, "/api/v1/register", protocol.RegisterRequest{Name: "Another", Password: goodPassword}), http.StatusForbidden, CodeForbidden)
 }
 
 func TestPasswordResetFlow(t *testing.T) {
@@ -815,30 +761,31 @@ func TestCSPOnSPAResponses(t *testing.T) {
 		}
 	}
 	// API answers carry it as well.
-	if rec := c.do(http.MethodGet, "/api/v1/setup/status", nil); rec.Header().Get("Content-Security-Policy") != ContentSecurityPolicy {
+	if rec := c.do(http.MethodGet, "/api/v1/status", nil); rec.Header().Get("Content-Security-Policy") != ContentSecurityPolicy {
 		t.Error("no CSP on API responses")
 	}
 }
 
 func TestNetworkGateCoversAuthRoutes(t *testing.T) {
 	e := newEnv(t)
-	token, _ := e.svc.InitSetup(e.ctx)
-	req := protocol.SetupRequest{SetupToken: token, Username: "admin", Password: goodPassword, InstanceName: "Home"}
+	if _, err := e.svc.BootstrapAdmin(e.ctx); err != nil {
+		t.Fatal(err)
+	}
 	outsider := e.client("8.8.8.8")
-	wantStatus(t, outsider.do(http.MethodGet, "/api/v1/setup/status", nil), http.StatusForbidden, CodeForbidden)
-	wantStatus(t, outsider.do(http.MethodPost, "/api/v1/setup", req), http.StatusForbidden, CodeForbidden)
-	if n := e.count(`SELECT COUNT(*) FROM users`); n != 0 {
-		t.Fatal("setup reached from a public address")
+	wantStatus(t, outsider.do(http.MethodGet, "/api/v1/status", nil), http.StatusForbidden, CodeForbidden)
+	wantStatus(t, outsider.do(http.MethodPost, "/api/v1/auth/login", protocol.LoginRequest{Username: "admin", Password: goodPassword}), http.StatusForbidden, CodeForbidden)
+	if n := e.count(`SELECT COUNT(*) FROM sessions`); n != 0 {
+		t.Fatal("login reached from a public address")
 	}
 	// The allowed_cidrs setting opens the gate without a restart.
 	if err := e.st.Set(e.ctx, audit.System, settings.KeyAllowedCIDRs, []string{"8.8.8.0/24"}); err != nil {
 		t.Fatal(err)
 	}
-	wantStatus(t, outsider.do(http.MethodGet, "/api/v1/setup/status", nil), http.StatusOK, "")
+	wantStatus(t, outsider.do(http.MethodGet, "/api/v1/status", nil), http.StatusOK, "")
 	if err := e.st.Set(e.ctx, audit.System, settings.KeyAllowedCIDRs, []string{}); err != nil {
 		t.Fatal(err)
 	}
-	wantStatus(t, outsider.do(http.MethodGet, "/api/v1/setup/status", nil), http.StatusForbidden, CodeForbidden)
+	wantStatus(t, outsider.do(http.MethodGet, "/api/v1/status", nil), http.StatusForbidden, CodeForbidden)
 }
 
 func TestAuditTrailOfAPIActions(t *testing.T) {
@@ -849,8 +796,8 @@ func TestAuditTrailOfAPIActions(t *testing.T) {
 	wantStatus(t, c.do(http.MethodPost, "/api/v1/me/password", protocol.ChangePasswordRequest{Current: goodPassword, New: otherPassword}), http.StatusNoContent, "")
 	wantStatus(t, c.do(http.MethodPost, "/api/v1/auth/logout", nil), http.StatusNoContent, "")
 	for action, want := range map[string]int{
-		audit.ActionSetup: 1, audit.ActionLoginFailure: 1, audit.ActionLoginSuccess: 1,
-		audit.ActionPasswordChange: 1, audit.ActionLogout: 1, audit.ActionSettingsUpdated: 1,
+		audit.ActionSetup: 1, audit.ActionLoginFailure: 1, audit.ActionLoginSuccess: 2, // 2: setup() and the explicit login
+		audit.ActionPasswordChange: 1, audit.ActionLogout: 1, audit.ActionSettingsUpdated: 2, // 2: the bootstrap sign-up deadline and setup() naming the instance
 	} {
 		if got := e.count(`SELECT COUNT(*) FROM audit_log WHERE action = ?`, action); got != want {
 			t.Errorf("audit %s = %d, want %d", action, got, want)

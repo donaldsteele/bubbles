@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Shows a secret (token, invite link, reset link, setup token) exactly once.
+  // Shows a secret (token, invite link, reset link, admin password) exactly once.
   // The caller keeps the value only in memory; this component stops showing it
   // and tells the caller to drop theirs when the admin confirms, when the
   // component goes away, or when the route changes.

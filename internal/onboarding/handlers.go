@@ -35,6 +35,11 @@ type pageData struct {
 	Target string
 	// Invite is the invite code on /invite/{code}, else "".
 	Invite string
+	// RegisterURL is the sign-up page of the server while sign-up is open
+	// (never on an invite page), else "".
+	RegisterURL string
+	// SignupClosed is true on the main page while sign-up is closed.
+	SignupClosed bool
 }
 
 func (s *server) instance() string {
@@ -92,7 +97,17 @@ func (s *server) render(w http.ResponseWriter, d pageData) {
 }
 
 func (s *server) handlePage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, s.data(r))
+	d := s.data(r)
+	if s.opts.RegistrationOpen != nil {
+		if s.opts.RegistrationOpen() {
+			if d.Target != "" {
+				d.RegisterURL = strings.TrimSuffix(d.Target, "/") + "/register"
+			}
+		} else {
+			d.SignupClosed = true
+		}
+	}
+	s.render(w, d)
 }
 
 func (s *server) handleInvite(w http.ResponseWriter, r *http.Request) {
@@ -158,8 +173,8 @@ func (s *server) handleQR(w http.ResponseWriter, r *http.Request) {
 }
 
 // ownURL reports whether raw is an HTTPS URL of this server: https scheme,
-// one of its hosts, its HTTPS port, and either the root path or an invite
-// path, with no credentials, query or fragment. QR codes are never drawn for
+// one of its hosts, its HTTPS port, and either the root path, the sign-up
+// path or an invite path, with no credentials, query or fragment. QR codes are never drawn for
 // anything else, so the endpoint cannot be used to brand phishing links.
 func (s *server) ownURL(raw string) bool {
 	if raw == "" || len(raw) > maxQRURL {
@@ -174,7 +189,7 @@ func (s *server) ownURL(raw string) bool {
 		return false
 	}
 	switch p := u.EscapedPath(); {
-	case p == "" || p == "/":
+	case p == "" || p == "/" || p == "/register":
 	case strings.HasPrefix(p, "/invite/") && inviteCode.MatchString(strings.TrimPrefix(p, "/invite/")):
 	default:
 		return false

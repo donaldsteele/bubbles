@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/donaldsteele/bubbles/internal/auth"
 	"github.com/donaldsteele/bubbles/internal/store"
 )
 
@@ -74,7 +75,7 @@ func TestSwapInFailureLeavesLiveDirUnchanged(t *testing.T) {
 		store.FileName:          "old-db",
 		store.FileName + "-wal": "old-wal",
 		VAPIDEntry:              "old-vapid",
-		"setup-token.txt":       "old-token",
+		auth.AdminPasswordFile:  "old-password",
 		dirFiles + "/a.bin":     "old-file",
 		"keep.txt":              "user-data",
 	}

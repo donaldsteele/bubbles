@@ -417,9 +417,9 @@ func appCanReadChannels(a Actor) bool {
 	return !a.IsApp() || a.HasScope(ScopeChannelsRead) || a.HasScope(ScopeMessagesRead)
 }
 
-// OnSetupTx creates #general, owned by the first admin, inside the setup
-// transaction. It matches auth.Options.OnSetup.
-func (s *Service) OnSetupTx(_ context.Context, tx *store.Tx, adminID string) error {
+// OnBootstrapTx creates #general, owned by the first admin, inside the bootstrap
+// transaction. It matches auth.Options.OnBootstrap.
+func (s *Service) OnBootstrapTx(_ context.Context, tx *store.Tx, adminID string) error {
 	var n int
 	err := tx.QueryRow(`SELECT COUNT(*) FROM channels WHERE name = ?`, GeneralName).Scan(&n)
 	if err != nil {

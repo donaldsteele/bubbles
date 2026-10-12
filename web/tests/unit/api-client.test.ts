@@ -53,11 +53,11 @@ describe('api client', () => {
     apiHooks.onResetting = (a) => states.push(a);
     const responses = [
       json(503, { error: { code: 'unavailable', message: 'resetting' } }),
-      json(200, { needs_setup: false }),
+      json(200, { instance_name: 'bubbles' }),
     ];
     const api = createApi((async () => responses.shift()) as unknown as typeof fetch);
-    await expect(call(api.GET('/setup/status'))).rejects.toMatchObject({ status: 503 });
-    await call(api.GET('/setup/status'));
+    await expect(call(api.GET('/status'))).rejects.toMatchObject({ status: 503 });
+    await call(api.GET('/status'));
     expect(states).toEqual([true, false]);
   });
 
