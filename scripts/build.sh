@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the web UI, then cross-compiles the server for six targets into dist/.
-# Each binary is zipped with README.md, HOW-TO-OPEN.txt and LICENSE, and
+# Each binary is zipped with README.md, HOW-TO-OPEN.txt, LICENSE and NOTICE, and
 # dist/SHA256SUMS lists the artifacts.
 #
 # Usage: scripts/build.sh [--skip-zip] [--skip-web]
@@ -69,9 +69,9 @@ for target in $TARGETS; do
     stage="dist/.stage/$name"
     mkdir -p "$stage"
     cp "$binary" "$stage/bubbles${ext}"
-    cp README.md HOW-TO-OPEN.txt LICENSE "$stage/"
+    cp README.md HOW-TO-OPEN.txt LICENSE NOTICE "$stage/"
     go run ./tools/distzip -out "dist/${name}.zip" \
-      "$stage/bubbles${ext}" "$stage/README.md" "$stage/HOW-TO-OPEN.txt" "$stage/LICENSE"
+      "$stage/bubbles${ext}" "$stage/README.md" "$stage/HOW-TO-OPEN.txt" "$stage/LICENSE" "$stage/NOTICE"
   fi
 done
 

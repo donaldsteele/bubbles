@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Mirrors scripts/build.sh. Each binary is zipped with README.md,
-    HOW-TO-OPEN.txt and LICENSE (using tools/distzip, so no external zip tool is
+    HOW-TO-OPEN.txt, LICENSE and NOTICE (using tools/distzip, so no external zip tool is
     needed), and dist\SHA256SUMS lists the artifacts. Server builds always use
     CGO_ENABLED=0.
 
@@ -111,7 +111,8 @@ try {
                 $stagedBinary,
                 (Join-Path $repo 'README.md'),
                 (Join-Path $repo 'HOW-TO-OPEN.txt'),
-                (Join-Path $repo 'LICENSE')
+                (Join-Path $repo 'LICENSE'),
+                (Join-Path $repo 'NOTICE')
             )
             Invoke-Checked "zip $name" { go run ./tools/distzip -out $zip @files }
             $artifacts += $zip
