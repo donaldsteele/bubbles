@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{{if .Invite}}Join{{else}}Connect to{{end}} {{.Instance}} - bubbles</title>
+<link rel="stylesheet" href="/onboarding.css">
+</head>
+<body>
+<main>
+<header>
+<h1>{{if .Invite}}You are invited to {{.Instance}}{{else}}Connect to {{.Instance}}{{end}}</h1>
+<p class="lead">{{.Instance}} is a bubbles chat server on this local network. It works without the internet and all app traffic is encrypted with HTTPS.</p>
+</header>
+
+{{if .HasCA}}
+<section class="card" aria-labelledby="trust">
+<h2 id="trust">1. Trust this server's certificate</h2>
+<p>The server makes its own HTTPS certificates. Install its certificate authority once on each device; after that the browser opens bubbles without warnings.</p>
+<p class="downloads">
+<a class="button" href="/ca.crt" download="bubbles-ca.crt">Download certificate</a>
+<a class="button secondary" href="/ca.mobileconfig">iPhone / iPad profile</a>
+<a class="button secondary" href="/ca.pem" download="bubbles-ca.pem">PEM file</a>
+</p>
+<p class="fingerprint"><span class="label">SHA-256 fingerprint. Compare it with the one on the server console or the admin page:</span>
+<code>{{.Fingerprint}}</code></p>
+<p class="muted">Certificate name: <strong>{{.CAName}}</strong>. It can only vouch for local network names and addresses.</p>
+{{template "steps" .}}
+</section>
+{{else}}
+<section class="card" aria-labelledby="trust">
+<h2 id="trust">1. Certificate</h2>
+<p>This server uses a certificate supplied by its administrator. If your device already trusts it, continue with step 2.</p>
+</section>
+{{end}}
+
+<section class="card" aria-labelledby="open">
+<h2 id="open">2. {{if .Invite}}Accept the invitation{{else}}Open bubbles{{end}}</h2>
+{{if .Target}}
+{{if .Invite}}<p><a class="button" href="{{.Target}}">Accept the invitation</a></p>{{end}}
+<figure class="qr">
+<img src="/qr.svg?u={{.Target}}" width="220" height="220" alt="QR code for {{.Target}}">
+<figcaption>Scan with the phone or tablet you want to connect.</figcaption>
+</figure>
+{{end}}
+{{if .URLs}}
+<p>Addresses of this server:</p>
+<ul class="urls">
+{{range .URLs}}<li><a href="{{.}}">{{.}}</a></li>
+{{end}}</ul>
+<p class="muted">Use the numeric address on Android: some phones cannot resolve <code>.local</code> names.</p>
+{{end}}
+</section>
+
+<section class="card note" aria-labelledby="trouble">
+<h2 id="trouble">Cannot connect?</h2>
+<p>Guest and event Wi-Fi networks often isolate devices from each other ("client isolation"). Then no device can reach this server. Join a network without client isolation, or ask whoever runs the network to turn it off.</p>
+</section>
+</main>
+</body>
+</html>
+{{define "steps"}}
+<div class="steps">
+{{if eq .OS "ios"}}<details open>{{else}}<details>{{end}}
+<summary>iPhone and iPad</summary>
+<ol>
+<li>Open this page in <strong>Safari</strong>, tap <a href="/ca.mobileconfig">iPhone / iPad profile</a> and allow the download.</li>
+<li>Open <strong>Settings &rarr; General &rarr; VPN &amp; Device Management</strong>, tap the downloaded profile and choose <strong>Install</strong>.</li>
+<li>Open <strong>Settings &rarr; General &rarr; About &rarr; Certificate Trust Settings</strong> and turn on full trust for <em>{{.CAName}}</em>.</li>
+</ol>
+</details>
+{{if eq .OS "android"}}<details open>{{else}}<details>{{end}}
+<summary>Android</summary>
+<ol>
+<li><a href="/ca.crt" download="bubbles-ca.crt">Download the certificate</a>.</li>
+<li>Open <strong>Settings &rarr; Security &rarr; Encryption &amp; credentials &rarr; Install a certificate &rarr; CA certificate</strong>. Menu names vary between phones; search Settings for "CA certificate".</li>
+<li>Pick <code>bubbles-ca.crt</code> from Downloads and confirm.</li>
+</ol>
+</details>
+{{if eq .OS "windows"}}<details open>{{else}}<details>{{end}}
+<summary>Windows</summary>
+<ol>
+<li><a href="/ca.crt" download="bubbles-ca.crt">Download the certificate</a>.</li>
+<li>Double-click <code>bubbles-ca.crt</code> and choose <strong>Install Certificate &rarr; Current User &rarr; Place all certificates in the following store &rarr; Trusted Root Certification Authorities</strong>.</li>
+<li>Or run in PowerShell: <code>Import-Certificate -FilePath "$env:USERPROFILE\Downloads\bubbles-ca.crt" -CertStoreLocation Cert:\CurrentUser\Root</code></li>
+<li>Restart the browser. Edge, Chrome and Firefox use this store.</li>
+</ol>
+</details>
+{{if eq .OS "macos"}}<details open>{{else}}<details>{{end}}
+<summary>macOS</summary>
+<ol>
+<li><a href="/ca.crt" download="bubbles-ca.crt">Download the certificate</a>.</li>
+<li>Run in Terminal: <code>security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db ~/Downloads/bubbles-ca.crt</code></li>
+<li>Or double-click it, find it in <strong>Keychain Access</strong>, open <strong>Trust</strong> and set <strong>When using this certificate</strong> to <strong>Always Trust</strong>.</li>
+</ol>
+</details>
+{{if eq .OS "linux"}}<details open>{{else}}<details>{{end}}
+<summary>Linux</summary>
+<ol>
+<li><a href="/ca.crt" download="bubbles-ca.crt">Download the certificate</a>.</li>
+<li>Debian and Ubuntu: <code>sudo cp bubbles-ca.crt /usr/local/share/ca-certificates/ &amp;&amp; sudo update-ca-certificates</code></li>
+<li>Fedora, Arch and openSUSE: <code>sudo trust anchor --store bubbles-ca.crt</code></li>
+<li>Chrome and Chromium can also import it under <strong>Settings &rarr; Privacy and security &rarr; Security &rarr; Manage certificates</strong>.</li>
+</ol>
+</details>
+{{if and (eq .OS "linux") .Firefox}}<details open>{{else}}<details>{{end}}
+<summary>Firefox on Linux</summary>
+<ol>
+<li>Firefox on Linux keeps its own certificate list. Open <strong>Settings &rarr; Privacy &amp; Security &rarr; Certificates &rarr; View Certificates &rarr; Authorities &rarr; Import</strong>.</li>
+<li>Pick <code>bubbles-ca.crt</code> and tick <strong>Trust this CA to identify websites</strong>.</li>
+</ol>
+</details>
+</div>
+{{end}}

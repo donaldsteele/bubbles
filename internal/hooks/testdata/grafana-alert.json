@@ -1,0 +1,18 @@
+{
+  "channel": "#alerts",
+  "username": "Grafana",
+  "icon_emoji": ":bell:",
+  "attachments": [
+    {
+      "title": "[FIRING:1] HighCPU grafana_folder (prod web-1)",
+      "title_link": "http://grafana.home.arpa:3000/alerting/list",
+      "text": "**Firing**\n\nValue: A=95.3\nLabels:\n - alertname = HighCPU\n - instance = web-1\n - severity = critical\nAnnotations:\n - summary = CPU usage above 90% for 5m\nSource: http://grafana.home.arpa:3000/alerting/grafana/abc123/view\nSilence: http://grafana.home.arpa:3000/alerting/silence/new?alertmanager=grafana&matcher=alertname%3DHighCPU\n",
+      "fallback": "[FIRING:1] HighCPU grafana_folder (prod web-1)",
+      "footer": "Grafana v10.4.2",
+      "footer_icon": "https://grafana.com/static/assets/img/fav32.png",
+      "color": "#D63232",
+      "ts": 1760205845,
+      "mrkdwn_in": ["text"]
+    }
+  ]
+}

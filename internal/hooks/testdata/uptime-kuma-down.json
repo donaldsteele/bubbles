@@ -1,0 +1,35 @@
+{
+  "text": "Uptime Kuma Alert",
+  "channel": "#monitoring",
+  "username": "Uptime Kuma",
+  "icon_emoji": ":kuma:",
+  "attachments": [
+    {
+      "color": "#E01E5A",
+      "blocks": [
+        {
+          "type": "header",
+          "text": { "type": "plain_text", "text": "Uptime Kuma Alert" }
+        },
+        {
+          "type": "section",
+          "fields": [
+            { "type": "mrkdwn", "text": "*Message*\n[🔴 Down] connect ECONNREFUSED 192.168.1.20:443" },
+            { "type": "mrkdwn", "text": "*Time (UTC)*\n2026-10-11 18:04:05" }
+          ]
+        },
+        {
+          "type": "actions",
+          "elements": [
+            {
+              "type": "button",
+              "text": { "type": "plain_text", "text": "Visit Uptime Kuma" },
+              "value": "Uptime-Kuma",
+              "url": "https://kuma.home.arpa:3001/dashboard/12"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

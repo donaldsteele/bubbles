@@ -1,0 +1,19 @@
+# Keep the build context small and free of host state.
+.git
+.github
+**/node_modules
+**/.svelte-kit
+/dist
+/data
+*.bbk
+*.db
+*.db-wal
+*.db-shm
+*.log
+bubbles
+bubbles.exe
+coverage
+playwright-report
+test-results
+tray
+docs/img

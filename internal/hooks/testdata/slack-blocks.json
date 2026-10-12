@@ -1,0 +1,69 @@
+{
+  "text": "Fallback text that Slack shows only in notifications",
+  "username": "Deploy Bot",
+  "icon_emoji": ":rocket:",
+  "icon_url": "https://evil.example/avatar.png",
+  "blocks": [
+    {
+      "type": "header",
+      "text": { "type": "plain_text", "text": "Release 2.4.0 [prod] & rollout" }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "<!channel> <!here> <!everyone> <@U024BE7LH> <#C024BE7LR|general> <!subteam^S123|@oncall> deployed *2.4.0* by <@U024BE7LH|dave>.\nSee <https://git.home.arpa/releases/2.4.0|the notes>, <mailto:ops@home.arpa|mail ops> or <https://git.home.arpa/a_b_c>.\nNot a link: <javascript:alert(1)|click me> and <data:text/html,hi>.\nEntities: 1 &lt; 2 &amp;&amp; 3 &gt; 2, &amp;lt; stays literal, snake_case_name, 2*3*4 and a * b.\nPlain @channel and @someuser, `code with <b>` and ~old~ _new_.\n```\nline one\n  indented <tag>\n```"
+      },
+      "fields": [
+        { "type": "mrkdwn", "text": "*Environment*\nprod" },
+        { "type": "plain_text", "text": "Region: eu-west" },
+        { "type": "mrkdwn", "text": "*Status*\n:white_check_mark: healthy" }
+      ]
+    },
+    { "type": "divider" },
+    {
+      "type": "image",
+      "image_url": "https://grafana.home.arpa/render/graph.png?x=1&y=2",
+      "alt_text": "CPU graph",
+      "title": { "type": "plain_text", "text": "CPU" }
+    },
+    {
+      "type": "image",
+      "image_url": "javascript:alert(1)",
+      "alt_text": "bad image"
+    },
+    {
+      "type": "context",
+      "elements": [
+        { "type": "mrkdwn", "text": "Triggered by *CI*" },
+        { "type": "plain_text", "text": "build #1234" }
+      ]
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "text": { "type": "plain_text", "text": "Roll back" },
+          "url": "https://ci.home.arpa/rollback/1234"
+        },
+        {
+          "type": "button",
+          "text": { "type": "plain_text", "text": "Open <script>" },
+          "url": "javascript:alert(1)"
+        }
+      ]
+    },
+    {
+      "type": "actions",
+      "elements": [
+        { "type": "static_select", "placeholder": { "type": "plain_text", "text": "Pick" }, "options": [] }
+      ]
+    },
+    {
+      "type": "rich_text",
+      "elements": [{ "type": "rich_text_section", "elements": [{ "type": "text", "text": "hello" }] }]
+    },
+    { "type": "input", "label": { "type": "plain_text", "text": "Reason" }, "element": { "type": "plain_text_input" } }
+  ]
+}

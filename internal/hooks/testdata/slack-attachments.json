@@ -1,0 +1,41 @@
+{
+  "text": "Disk almost full on *nas-1* <!channel>",
+  "username": "  Backup ‮Monitor\u0007  ",
+  "icon_emoji": ":floppy_disk:",
+  "attachments": [
+    {
+      "fallback": "Disk almost full on nas-1 (92%)",
+      "color": "danger",
+      "pretext": "Heads up, <@U123>: the *nightly* job reported a problem.",
+      "title": "Volume /mnt/tank is 92% full",
+      "title_link": "https://nas.home.arpa/volumes/tank",
+      "text": "Used <https://nas.home.arpa/smart|SMART data> shows &lt;2% spare.\n> quoted line\n# not a heading",
+      "fields": [
+        { "title": "Host", "value": "nas-1", "short": true },
+        { "title": "Used", "value": 92, "short": true },
+        { "title": "Details", "value": "*Pool* tank\nMirror of 2 disks", "short": false },
+        { "title": "", "value": "value only", "short": false },
+        { "title": "title only", "value": "", "short": false }
+      ],
+      "footer": "Backup Monitor 1.2",
+      "ts": "1760205845"
+    },
+    {
+      "fallback": "Only a fallback is shown when nothing else is set",
+      "color": "#ECB22E"
+    },
+    {
+      "title": "Dangerous link",
+      "title_link": "javascript:alert(1)",
+      "text": "Shown without a link",
+      "color": "warning",
+      "footer": "no timestamp"
+    },
+    {
+      "pretext": "A pretext with no attachment body"
+    },
+    {
+      "color": "#439FE0"
+    }
+  ]
+}

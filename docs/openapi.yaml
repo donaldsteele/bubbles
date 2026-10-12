@@ -1,0 +1,6006 @@
+openapi: 3.1.0
+info:
+  title: bubbles REST API
+  version: 1.0.0
+  summary: Self-hosted LAN chat server.
+  description: |
+    REST contract of the bubbles server. Everything is served over HTTPS
+    (default port 8443); JSON in, JSON out.
+
+    **Authentication.** A browser session travels in the `__Host-bubbles_session`
+    cookie (Secure, HttpOnly, SameSite=Strict, Path=/). Only the SHA-256 of the
+    token is stored server-side. An app authenticates with `Authorization: Bearer
+    bub_...` (`bearerAuth`): a token is shown once when it is issued, only its SHA-256 is
+    stored, and it carries scopes (`messages:read`, `messages:write`, `alerts:write`,
+    `files:write`, `channels:read`, `events:read`, `commands`, `dm:write`, `mcp`) and an
+    optional channel allowlist. A revoked, expired or unknown token is a generic `401`; a
+    token without the scope an endpoint needs is `403`. Bearer tokens work on the endpoints
+    that list `bearerAuth`; everywhere else (setup, auth, invites, register, password resets,
+    `/me`, push, `/admin`) a valid token is answered `403`.
+
+    **CSRF.** Every state-changing request (anything but GET, HEAD, OPTIONS) that
+    carries a session cookie must also carry an `Origin` (or `Referer`) header that
+    names the request host, else the server answers `403 forbidden`.
+
+    **Network gate.** Requests from non-private source addresses that are not in the
+    `allowed_cidrs` setting are answered `403 forbidden` before any routing.
+
+    **Errors.** Every non-2xx answer from the API is the `Error` envelope.
+    Validation failures carry `details.fields`, a map of request field to reason.
+    `429 rate_limited` carries `Retry-After` (seconds). Request bodies are limited
+    to 1 MiB (`413 too_large`) and must be `application/json` (`415 unsupported_media`).
+
+    **Time.** Timestamps are RFC 3339 UTC with milliseconds.
+
+    **Visibility.** A channel the caller cannot see (a private channel or DM they are
+    not in, or any channel for a guest who was not added) is answered `404 not_found`
+    on every endpoint, never `403`, so its existence is not revealed. `403 forbidden`
+    means the resource is visible but the action is not allowed.
+
+    **Pagination.** Message lists take `before`, `after` or `around` (one message id, at
+    most one of them) and `limit` (1-100, default 50), and answer
+    `{items, has_more_before, has_more_after}` with the items oldest first. Invalid
+    combinations are `400` with `details.fields`.
+
+    **Rate limits.** Every session: 20 requests per second (burst 50). Message posts:
+    additionally 10 per second per user (burst 20). Every app token: 10 requests per second
+    (burst 30). Alerts: 60 per minute per app (burst 20). Webhooks: 30 per minute per webhook (burst 10). Pairing requests: 5 per minute per
+    source address. Uploads: at most 5 in flight per user. Over the limit: `429 rate_limited`.
+
+    **Files.** `POST /files` takes one file as `multipart/form-data` (field `file`), up to
+    the `upload_max_bytes` setting (`413 too_large`; the per-user quota is a `413` too);
+    it answers `507 insufficient_storage` when the disk is nearly full. JPEG, PNG and WebP
+    uploads are stripped of EXIF, XMP, IPTC and text metadata. Files are served by
+    `GET /files/{id}/{name}` to their uploader and to everyone who may see a channel with a
+    message that attaches them (anyone signed in for avatars); other callers get `404`.
+servers:
+  - url: /api/v1
+    description: REST API
+  - url: /
+    description: Unversioned operational endpoints (`/healthz`)
+tags:
+  - name: ops
+    description: Liveness.
+  - name: setup
+    description: First-run setup.
+  - name: auth
+    description: Sign in and out.
+  - name: invites
+    description: Joining by invite link.
+  - name: account
+    description: The signed-in user's own account.
+  - name: bootstrap
+    description: Client snapshot.
+  - name: users
+    description: Looking up users.
+  - name: channels
+    description: Channels, membership and read state.
+  - name: dms
+    description: Direct messages and group DMs.
+  - name: messages
+    description: Messages and threads.
+  - name: reactions
+    description: Emoji reactions.
+  - name: pins
+    description: Pinned messages.
+  - name: search
+    description: Full-text message search.
+  - name: files
+    description: Uploads and file downloads.
+  - name: push
+    description: Web Push subscriptions (only while the admin enables web push).
+  - name: apps
+    description: App tokens and the calling app.
+  - name: mcp
+    description: Model Context Protocol endpoint for AI agents.
+  - name: alerts
+    description: Alerts posted by apps, acknowledged and resolved by members.
+  - name: pairing
+    description: Pairing an app with the server.
+  - name: webhooks
+    description: Incoming webhooks (native and Slack-compatible).
+  - name: admin
+    description: Administration of apps, tokens, pairing requests and webhooks (admin role, browser session).
+security: []
+paths:
+  /healthz:
+    get:
+      tags: [ops]
+      operationId: getHealth
+      summary: Liveness probe
+      description: No authentication. Subject to the network gate only. Served at the server root, not under `/api/v1`.
+      servers:
+        - url: /
+      responses:
+        "200":
+          description: The server is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /setup/status:
+    get:
+      tags: [setup]
+      operationId: getSetupStatus
+      summary: Whether first-run setup is still pending
+      responses:
+        "200":
+          description: Setup state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupStatus"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /setup:
+    post:
+      tags: [setup]
+      operationId: completeSetup
+      summary: Create the first admin account
+      description: |
+        Needs the one-time setup token printed on the server console (also in
+        `setup-token.txt` in the data directory). Works exactly once: it creates the
+        admin, sets the instance name, signs the admin in and deletes the token.
+        Afterwards it answers `409 conflict`. A missing or wrong token is
+        `403 forbidden`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetupRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/SessionStarted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Sign in with username and password
+      description: |
+        Every failure is the same `401 unauthorized` (no user enumeration). After 5
+        failures per username or 20 per IP address within 15 minutes the answer is
+        `429 rate_limited` with `Retry-After`. A presented session cookie is revoked
+        and replaced (session rotation).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/SessionStarted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Sign out
+      description: Revokes the presented session and clears the cookie. Idempotent; works without a session.
+      responses:
+        "204":
+          description: Signed out. The session cookie is cleared.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/SetCookie"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /auth/device-login:
+    post:
+      tags: [auth]
+      operationId: deviceLogin
+      summary: Sign a tray device in
+      description: |
+        Checks the credentials exactly like `POST /auth/login` (same lockout: 5 failures per
+        username or 20 per IP address within 15 minutes, then `429`) and registers a device.
+        The device token carries only the scopes `events:read`, `messages:read` and
+        `notify`: it may open the WebSocket, read the bootstrap snapshot, messages and
+        threads, and request handoff codes; everything else is `403`. Device tokens are
+        revoked when the password changes or the account is deactivated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceLoginRequest"
+      responses:
+        "200":
+          description: The device was registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceLoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /auth/handoff-code:
+    post:
+      tags: [auth]
+      operationId: createHandoffCode
+      summary: A new handoff code for the calling device
+      security:
+        - deviceAuth: []
+      responses:
+        "200":
+          description: A one-time code, valid for 60 seconds.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffCodeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /auth/handoff:
+    get:
+      tags: [auth]
+      operationId: redeemHandoff
+      summary: Open the web app from the tray without a second sign-in
+      description: >-
+        Served at the server root, not under `/api/v1`. Redeems a one-time handoff code
+        (single use, 60 seconds), starts a normal web session (cookie, rotating any presented
+        session) and redirects to `/`, or to the optional same-origin path `next` (a plain
+        absolute path such as `/c/<channel id>`; anything else, including `//host`, backslashes,
+        control characters or a scheme, is ignored and the redirect is `/`). An unknown, used or
+        expired code redirects to `/login?error=handoff` without a cookie.
+      servers:
+        - url: /
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+        - name: next
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "303":
+          description: Redirect to `/` or `next` (cookie set) or to `/login?error=handoff`.
+          headers:
+            Location:
+              schema:
+                type: string
+            Set-Cookie:
+              $ref: "#/components/headers/SetCookie"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /invites/{code}:
+    get:
+      tags: [invites]
+      operationId: getInvite
+      summary: Look up an invite code
+      description: Always `200`; `valid` is false for unknown, expired, revoked and used-up codes.
+      parameters:
+        - $ref: "#/components/parameters/Code"
+      responses:
+        "200":
+          description: Invite state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteInfo"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /invites/{code}/accept:
+    post:
+      tags: [invites]
+      operationId: acceptInvite
+      summary: Create an account from an invite
+      description: Consumes one use of the invite, creates the account with the invite's role and signs it in.
+      parameters:
+        - $ref: "#/components/parameters/Code"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInviteRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/SessionStarted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /register:
+    post:
+      tags: [invites]
+      operationId: register
+      summary: Self-register a member account
+      description: Only when the `open_registration` setting is on; otherwise `403 forbidden`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/SessionStarted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /password-resets/{code}:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      summary: Set a new password with a one-time reset link
+      description: |
+        The code comes from an admin (`bubbles admin reset-password`, or the admin UI)
+        and is valid for 24 hours, once. All of the user's sessions are revoked; the
+        user signs in again with the new password.
+      parameters:
+        - $ref: "#/components/parameters/Code"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "204":
+          description: Password changed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /me:
+    get:
+      tags: [account]
+      operationId: getMe
+      summary: The signed-in user
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    patch:
+      tags: [account]
+      operationId: updateMe
+      summary: Update the caller's profile
+      description: |
+        Partial update; omitted fields stay as they are. `display_name` (at most 64
+        characters; empty means the username) and `prefs` cannot be null. `status_text`
+        (at most 100 characters) null clears the text. `avatar_file_id` must be an image the
+        caller uploaded with `POST /files` (anything else is `400` with
+        `details.fields.avatar_file_id`); null removes the avatar. `prefs` replaces the whole
+        object (a JSON object of at most 4096 bytes). A `user.updated` event is emitted when
+        something changed.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeRequest"
+      responses:
+        "200":
+          description: The caller after the update.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /me/password:
+    post:
+      tags: [account]
+      operationId: changePassword
+      summary: Change the caller's password
+      description: |
+        Needs the current password (wrong: `400` with `details.fields.current`; repeated
+        failures are rate limited). Every other session of the user is revoked.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: Password changed; other sessions revoked.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /me/sessions:
+    get:
+      tags: [account]
+      operationId: listMySessions
+      summary: The caller's live sessions
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Sessions, most recently used first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /me/sessions/{id}:
+    delete:
+      tags: [account]
+      operationId: revokeMySession
+      summary: Revoke one of the caller's sessions
+      description: Revoking the current session also clears the cookie.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Session id from `GET /me/sessions`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      responses:
+        "204":
+          description: Session revoked.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/SetCookie"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /me/devices:
+    get:
+      tags: [account]
+      operationId: listMyDevices
+      summary: The caller tray devices
+      description: Active device tokens, newest first. Browser sessions only.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Devices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /me/devices/{id}:
+    delete:
+      tags: [account]
+      operationId: revokeMyDevice
+      summary: Revoke a tray device
+      description: >-
+        Revokes the device token and closes its WebSocket connections. A browser session may
+        revoke any device of its user; a device token only itself (the tray sign-out).
+        Revoking an already revoked device succeeds.
+      security:
+        - cookieAuth: []
+        - deviceAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Device id from `GET /me/devices`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      responses:
+        "204":
+          description: Device revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /bootstrap:
+    get:
+      tags: [bootstrap]
+      operationId: getBootstrap
+      summary: Snapshot to start (or resync) a client
+      description: >-
+        Everything a client needs at start: the caller, the users it may see, its channels
+        (joined plus the visible public ones), its memberships and unread counts, the public
+        settings, the instance identity (`instance_id`, `epoch`) and `seq_head`, the event
+        sequence the snapshot is consistent with. Guests and apps see only the users they share
+        a channel with and no public directory.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bootstrap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /users:
+    get:
+      tags: [users]
+      operationId: listUsers
+      summary: List or search users
+      description: >-
+        Visibility-filtered: members and admins see everyone; guests and apps see only
+        themselves and users they share a channel with. `q` keeps users whose username or
+        display name contains it (case-insensitive).
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Search text, at most 64 characters.
+          schema:
+            type: string
+            maxLength: 64
+      responses:
+        "200":
+          description: Users ordered by id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /users/{id}:
+    get:
+      tags: [users]
+      operationId: getUser
+      summary: One user
+      description: >-
+        A user the caller may not see is `404`, exactly like one that does not exist.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels:
+    get:
+      tags: [channels]
+      operationId: listChannels
+      summary: Channels the caller is in, or the public directory
+      description: >-
+        `scope=joined` (default) lists the caller's channels, DMs included. `scope=public` is
+        the directory of public channels; guests and apps may not browse it (`403`).
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: scope
+          in: query
+          description: Which channels to list.
+          schema:
+            type: string
+            enum: [joined, public]
+            default: joined
+      responses:
+        "200":
+          description: Channels.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [channels]
+      operationId: createChannel
+      summary: Create a public or private channel
+      description: >-
+        The caller becomes the owner. Guests and apps cannot create channels (`403`); a taken
+        name is `409`.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChannelRequest"
+      responses:
+        "201":
+          description: The new channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}:
+    patch:
+      tags: [channels]
+      operationId: updateChannel
+      summary: Rename or edit a channel
+      description: >-
+        Channel owners (and admins in public channels) only. `retention_days: null` removes the
+        channel's own retention.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateChannelRequest"
+      responses:
+        "200":
+          description: The updated channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/archive:
+    post:
+      tags: [channels]
+      operationId: archiveChannel
+      summary: Archive a channel
+      description: >-
+        An archived channel is read-only. Archiving an archived channel changes nothing.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      responses:
+        "200":
+          description: The channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/unarchive:
+    post:
+      tags: [channels]
+      operationId: unarchiveChannel
+      summary: Unarchive a channel
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      responses:
+        "200":
+          description: The channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/join:
+    post:
+      tags: [channels]
+      operationId: joinChannel
+      summary: Join a public channel
+      description: >-
+        Joining a channel the caller is already in returns the existing membership.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      responses:
+        "200":
+          description: "The caller's membership."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Membership"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/leave:
+    post:
+      tags: [channels]
+      operationId: leaveChannel
+      summary: Leave a channel
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      responses:
+        "204":
+          description: Left the channel.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/members:
+    get:
+      tags: [channels]
+      operationId: listChannelMembers
+      summary: Members of a channel
+      description: >-
+        Oldest member first.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      responses:
+        "200":
+          description: The members.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/members/{user_id}:
+    put:
+      tags: [channels]
+      operationId: putChannelMember
+      summary: Add a member or change their role
+      description: >-
+        Channel owners (and admins in public channels). Idempotent. The body is optional;
+        without it the user becomes a plain member. Adding an app account needs an admin.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+        - $ref: "#/components/parameters/MemberUserId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddMemberRequest"
+      responses:
+        "200":
+          description: The membership.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Membership"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [channels]
+      operationId: deleteChannelMember
+      summary: Remove a member
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+        - $ref: "#/components/parameters/MemberUserId"
+      responses:
+        "204":
+          description: The member was removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/membership:
+    patch:
+      tags: [channels]
+      operationId: updateMyMembership
+      summary: Change the caller's notification settings for a channel
+      description: >-
+        `muted_until: null` unmutes.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMembershipRequest"
+      responses:
+        "200":
+          description: "The caller's membership."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Membership"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/read:
+    post:
+      tags: [channels]
+      operationId: markChannelRead
+      summary: Mark a channel read up to a message
+      description: >-
+        The read marker only moves forward.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkReadRequest"
+      responses:
+        "200":
+          description: The new read state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /dms:
+    post:
+      tags: [dms]
+      operationId: startDM
+      summary: Get or create a direct message
+      description: >-
+        One other user gives a `dm`, several a `group_dm` (at most 9 participants including the
+        caller); an empty list is the caller's note-to-self. The same participants always give
+        the same channel: `201` when it was created, `200` when it already existed.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartDMRequest"
+      responses:
+        "200":
+          description: The existing conversation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "201":
+          description: The conversation was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/messages:
+    get:
+      tags: [messages]
+      operationId: listMessages
+      summary: Root messages of a channel
+      description: >-
+        Root messages only, oldest first within the page, each with `reply_count`. Without an
+        anchor the newest messages. `before`, `after` and `around` are mutually exclusive
+        message ids; `around` centres the page on that message (`404` if it is not in the
+        channel).
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+        - $ref: "#/components/parameters/Before"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Around"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [messages]
+      operationId: postMessage
+      summary: Post a message
+      description: >-
+        Idempotent per author by `nonce`: `201` for a new message, `200` with the stored message
+        when the nonce was used before (in the same channel and thread; elsewhere `400` on
+        `nonce`). Limited to 10 posts per second per user (burst 20) in addition to the
+        per-session limit.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMessageRequest"
+      responses:
+        "200":
+          description: The nonce matched an earlier post; its message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "201":
+          description: The message was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /messages/{id}/thread:
+    get:
+      tags: [messages]
+      operationId: getThread
+      summary: A thread
+      description: >-
+        The root and a page of replies, oldest first. `id` may be the root or any reply.
+        Pagination is over the replies.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MessageId"
+        - $ref: "#/components/parameters/Before"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Around"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: The thread.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Thread"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /messages/{id}:
+    patch:
+      tags: [messages]
+      operationId: editMessage
+      summary: Edit a message
+      description: >-
+        Authors edit their own messages.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MessageId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditMessageRequest"
+      responses:
+        "200":
+          description: The edited message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [messages]
+      operationId: deleteMessage
+      summary: Delete a message
+      description: >-
+        Authors, channel owners and admins (public channels and channels they belong to) may
+        delete; the permission rules live in the chat service, not here. The message stays as a
+        tombstone with `deleted: true`.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MessageId"
+      responses:
+        "204":
+          description: The message was deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /messages/{id}/reactions/{emoji}:
+    put:
+      tags: [reactions]
+      operationId: addReaction
+      summary: React to a message
+      description: >-
+        Idempotent. `emoji` is one URL-encoded path segment (percent-encoded UTF-8); ZWJ
+        sequences, skin tones and flags are single reactions.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MessageId"
+        - $ref: "#/components/parameters/Emoji"
+      responses:
+        "200":
+          description: "The message's reactions after the change."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReactionList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [reactions]
+      operationId: removeReaction
+      summary: Remove the caller's reaction
+      description: >-
+        Idempotent.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/MessageId"
+        - $ref: "#/components/parameters/Emoji"
+      responses:
+        "200":
+          description: "The message's reactions after the change."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReactionList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/pins:
+    get:
+      tags: [pins]
+      operationId: listPins
+      summary: Pinned messages
+      description: >-
+        Newest pin first.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      responses:
+        "200":
+          description: The pins.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PinList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /channels/{id}/pins/{message_id}:
+    put:
+      tags: [pins]
+      operationId: pinMessage
+      summary: Pin a message
+      description: >-
+        Any member may pin. Idempotent.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+        - $ref: "#/components/parameters/PinMessageId"
+      responses:
+        "200":
+          description: The pin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pin"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [pins]
+      operationId: unpinMessage
+      summary: Unpin a message
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+        - $ref: "#/components/parameters/PinMessageId"
+      responses:
+        "204":
+          description: The message is not pinned.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /search:
+    get:
+      tags: [search]
+      operationId: searchMessages
+      summary: Search messages
+      description: |
+        Full-text search over the messages of the channels the caller is a member of (and may
+        view). Private channels, DMs and public channels the caller has not joined or has left are
+        never searched; deleted and system messages never match. Replies are included
+        (`message.thread_root_id` is set).
+
+        Query grammar (operators are case-insensitive; a token with an unknown operator name, or
+        an operator with an empty value, is an ordinary word):
+
+        `words "exact phrase" in:#channel from:@user has:file|image|link before:YYYY-MM-DD after:YYYY-MM-DD`
+
+        - Words and phrases must all match. The last bare word also matches as a prefix.
+          Letters match without regard to case or diacritics (`cafe` finds `café`). Punctuation
+          and FTS syntax in the text are literal and never an error.
+        - `in:#channel` restricts to the named channel among the caller's channels; `from:@user`
+          to messages by that username. A name that matches nothing yields an empty result, not an
+          error. A repeated `in:` or `from:` matches any of its values.
+        - `has:file` is any attachment, `has:image` an image attachment, `has:link` a body
+          containing `http://` or `https://`. Repeated `has:` operators must all hold.
+        - `before:D` keeps messages created before 00:00 of day D and `after:D` those created at
+          or after it, in the server's local time zone. An invalid date is a 400 on `q`.
+        - A query may consist of filters only; it is then ordered newest first.
+
+        Results are ordered by relevance (best first), then newest first. Pages hold at most 50
+        results; pass `next_cursor` as `cursor` (with the same `q`) for the next page.
+
+        `snippet` is an HTML fragment that is safe to render as markup: all message text in it
+        is HTML-escaped (`&`, `<`, `>`, `"`, `'`) and the only tags are `<mark>` and `</mark>`
+        around matched terms. It is a short excerpt around the first matches, or the start of the
+        text for a filter-only query.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query, 1 to 256 characters (see the grammar above).
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+        - name: cursor
+          in: query
+          description: Opaque `next_cursor` of the previous page, used with the same `q`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: limit
+          in: query
+          description: Page size.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 50
+      responses:
+        "200":
+          description: A page of results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /files:
+    post:
+      tags: [files]
+      operationId: uploadFile
+      summary: Upload a file
+      description: |
+        One file per request in the multipart field `file`, streamed to disk. The content
+        is sniffed and cross-checked with the file name's extension; JPEG, PNG and WebP
+        files lose their metadata (a JPEG with an EXIF orientation is rotated upright) and
+        get a 640 px thumbnail when larger. Everything else is stored as it is and always
+        served as a download (`meta_stripped` is false for HEIC, video, audio and
+        documents). Identical content is stored once. Attach the returned id to a message
+        with `file_ids` within 24 hours, or it is deleted.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              additionalProperties: true
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file. Its file name is kept (sanitized) as `name`.
+      responses:
+        "201":
+          description: The stored file.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/File"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          description: |
+            The file is larger than `upload_max_bytes` (`details.limit` is
+            `upload_max_bytes`) or exceeds the caller's `user_quota_bytes`
+            (`details.limit` is `user_quota_bytes`; `details.used_bytes` is what they store).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: Content-Type is not multipart/form-data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "507":
+          $ref: "#/components/responses/InsufficientStorage"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /files/{id}/{name}:
+    get:
+      tags: [files]
+      operationId: getFile
+      summary: Download or display a file
+      description: |
+        The file is found by `id`; `name` is cosmetic (the real name comes from the
+        `Content-Disposition` header). Allowed for the uploader, for members of a channel
+        with a live message that attaches the file (visibility as for the channel) and, for
+        avatars, for every signed-in user; anything else is `404`.
+
+        Only JPEG, PNG, GIF and WebP images, MP4 and WebM video and MP3, Ogg, WAV and WebM
+        audio are sent with their own `Content-Type` and `Content-Disposition: inline`.
+        Everything else (SVG, HTML, PDF, HEIC, ...) is `application/octet-stream` with
+        `Content-Disposition: attachment`, as is any file with `download=1`. Responses carry
+        `X-Content-Type-Options: nosniff`, a sandboxing `Content-Security-Policy`,
+        `Cross-Origin-Resource-Policy: same-origin`, an immutable private `Cache-Control` and
+        the SHA-256 of the content as `ETag`. `Range` requests are answered with `206`.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: File id.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+        - name: name
+          in: path
+          required: true
+          description: File name, URL-escaped. Ignored by the server.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 1024
+        - name: thumb
+          in: query
+          required: false
+          description: "`1` returns the thumbnail (`404` when the file has none)."
+          schema:
+            type: string
+            enum: ["0", "1"]
+        - name: download
+          in: query
+          required: false
+          description: "`1` forces `Content-Disposition: attachment`."
+          schema:
+            type: string
+            enum: ["0", "1"]
+        - name: Range
+          in: header
+          required: false
+          description: Byte range, for example `bytes=0-1023`.
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/FileContent"
+        "206":
+          $ref: "#/components/responses/FileContent"
+        "304":
+          description: Not modified (`If-None-Match` matched the `ETag`).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "416":
+          description: The requested range cannot be satisfied.
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /push/vapid-public-key:
+    get:
+      tags: [push]
+      operationId: getPushVapidPublicKey
+      summary: The VAPID public key for Web Push subscriptions
+      description: >-
+        Pass `key` as `applicationServerKey` to `PushManager.subscribe()`. Answers
+        `404 not_found` while the admin setting `web_push_enabled` is off.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The server's VAPID public key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushVapidKey"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /push/subscriptions:
+    post:
+      tags: [push]
+      operationId: subscribePush
+      summary: Register or refresh a Web Push subscription of the caller
+      description: >-
+        Upserts by `endpoint`. The endpoint must be an `https` URL (port 443, no
+        credentials) on a known browser push service (`fcm.googleapis.com`,
+        `*.push.services.mozilla.com`, `*.notify.windows.com`, `*.push.apple.com`);
+        anything else is `400` with `details.fields.endpoint`, because the server posts
+        to this URL. A user may hold at most 10 subscriptions (`409 conflict`). An endpoint
+        already registered to another account is taken over only by a request carrying the
+        same `p256dh` and `auth` keys (the same browser signing in as someone else); any
+        other request is `409 conflict`.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushSubscribeRequest"
+      responses:
+        "204":
+          description: The subscription is stored.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [push]
+      operationId: unsubscribePush
+      summary: Remove one of the caller's Web Push subscriptions
+      description: >-
+        Idempotent: an unknown endpoint, or one that belongs to another user, is
+        answered `204` too and nothing is removed.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushUnsubscribeRequest"
+      responses:
+        "204":
+          description: The caller has no subscription with that endpoint.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /apps/self:
+    get:
+      tags: [apps]
+      operationId: getAppSelf
+      summary: The app and token behind the bearer token
+      description: >-
+        Only for an app token (`bearerAuth`); a browser session gets `403`. The `tokens`
+        list of the returned app is empty.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The calling token's app and the token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSelf"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /apps/self/commands:
+    put:
+      tags: [apps]
+      operationId: setAppCommands
+      summary: Replace the app's slash commands
+      description: >-
+        Needs an app token with `commands`. The body is the app's complete command set; it
+        replaces the previous set atomically. Names match `^[a-z0-9-]{1,32}$`, are unique
+        across all apps and must not be a built-in (`topic`, `invite`, `leave`, `mute`, `me`,
+        `help`); a clash is `409` naming the owner. At most 50 commands.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 50
+              items:
+                $ref: "#/components/schemas/CommandInput"
+      responses:
+        "200":
+          description: The stored commands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /commands:
+    get:
+      tags: [apps]
+      operationId: listCommands
+      summary: List the built-in and registered slash commands
+      description: >-
+        For autocomplete. A browser session, or an app token with `messages:read`.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Built-ins first, then app commands by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /commands/invoke:
+    post:
+      tags: [apps]
+      operationId: invokeCommand
+      summary: Run a slash command
+      description: >-
+        Browser session only; the caller must be able to post in the channel. A built-in runs
+        on the server (`200`; a problem becomes an ephemeral notice, not an error). An app
+        command is sent as `command.invoked` to the app's connections (`202`). When the app
+        has no live connection the answer is `503` and the caller gets an ephemeral
+        "APP is offline" notice. `404` for an unknown command or channel; `409` when the
+        app's bot is not in the channel.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvokeCommandRequest"
+      responses:
+        "200":
+          description: A built-in command ran.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvokedCommand"
+        "202":
+          description: The app was told.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvokedCommand"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          description: >-
+            `rate_limited` with `Retry-After`. Either the shared message-post limit (per user,
+            10 per second with a burst of 20, the same bucket as REST message posts), or a
+            pending-invocation cap: at most 100 unanswered invocations per app and 20 per
+            invoker across all apps. A cap clears when the app answers or the invocation
+            expires.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /commands/invocations/{id}/respond:
+    post:
+      tags: [apps]
+      operationId: respondCommand
+      summary: Answer a command invocation
+      description: >-
+        Only the app that owns the invocation (`commands` scope), within 15 minutes; an
+        unknown, expired or foreign invocation is `404`. `ephemeral: true` shows the text
+        only to the invoker and stores nothing; otherwise the app's bot posts a normal
+        message in the channel or thread (mentions disabled).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RespondCommandRequest"
+      responses:
+        "200":
+          description: Delivered or posted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespondedCommand"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /mcp:
+    post:
+      tags: [mcp]
+      operationId: postMcp
+      summary: Model Context Protocol endpoint (Streamable HTTP)
+      description: |
+        MCP over Streamable HTTP, for AI agents. Needs an app token with the `mcp` scope
+        (`403` without it, and for browser sessions). The body is one JSON-RPC 2.0 message
+        (`initialize`, `tools/list`, `tools/call`, ...); a request is answered with one
+        JSON-RPC response (`200`, `application/json`), a notification or response with
+        `202`. The transport is stateless: no `Mcp-Session-Id` is issued, and `GET` and
+        `DELETE` answer `405`. Tools run as the token's bot user and need further scopes
+        (`messages:read`, `messages:write`, `alerts:write`); a missing scope or a refused
+        action is a tool result with `isError: true`, not an HTTP error. See `docs/mcp.md`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: A JSON-RPC 2.0 message.
+      responses:
+        "200":
+          description: The JSON-RPC response.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: A JSON-RPC 2.0 response.
+        "202":
+          description: The message needed no response.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /alerts:
+    post:
+      tags: [alerts]
+      operationId: postAlert
+      summary: Post or update an alert
+      description: |
+        Needs an app token with `alerts:write`; the app's bot must be a member of the target
+        channel (and the token's channel allowlist must admit it), else `404`. `channel` is a
+        channel name (a leading `#` is ignored) or id.
+
+        `dedupe_key` identifies the condition. With no un-resolved alert for `(app,
+        dedupe_key)` a new `alert` message is created (`201`, transition `created`,
+        event `message.created`). Otherwise the open alert is updated (`200`): occurrences
+        grow, the severity is raised when higher, the message body is re-rendered, and the
+        events `message.updated` and `alert.updated` follow. The transition says whether
+        the update can notify: `escalated` (higher severity), `renotify_due` (the alert is
+        open, not acknowledged and its last notification is older than `renotify_after_s`,
+        default the `alert_renotify_s` setting, 0 = never) or `updated_other`. An alert
+        resolved earlier does not match: the same key then opens a new alert. A key that
+        is open in another channel is `409`.
+
+        Limited to 60 alerts per minute per app (burst 20).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertInput"
+      responses:
+        "200":
+          description: The open alert with this key was updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostedAlert"
+        "201":
+          description: A new alert was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostedAlert"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    get:
+      tags: [alerts]
+      operationId: listAlerts
+      summary: List alerts
+      description: >-
+        Alert messages, newest first, from the channels the caller is a member of (an app
+        token: and in its allowlist; it needs `alerts:write` or `messages:read`). Pass
+        `next_cursor` as `cursor` for the next page.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: state
+          in: query
+          description: Only alerts in this state.
+          schema:
+            type: string
+            enum: [open, acked, resolved]
+        - name: channel_id
+          in: query
+          description: Only alerts of this channel.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+        - name: cursor
+          in: query
+          description: The `next_cursor` of the previous page.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of alert messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /alerts/resolve:
+    post:
+      tags: [alerts]
+      operationId: resolveAlertByKey
+      summary: Resolve the app's alert by dedupe key
+      description: >-
+        Needs an app token with `alerts:write`. Resolves the app's open alert with this key
+        and posts "Resolved by <app>: <text>" in the alert's thread. Idempotent: when the
+        latest alert with the key is resolved already it is returned unchanged; a key the
+        app never posted is `404`. Counts against the per-app alert limit.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveAlertByKeyRequest"
+      responses:
+        "200":
+          description: The resolved alert message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /alerts/{id}/ack:
+    post:
+      tags: [alerts]
+      operationId: ackAlert
+      summary: Acknowledge an alert
+      description: >-
+        Any member of the alert's channel. An acknowledged alert stops renotifying;
+        acknowledging it again changes nothing. A resolved alert is `409`. Recorded in the
+        audit log.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AlertId"
+      responses:
+        "200":
+          description: The alert message (state `acked`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /alerts/{id}/resolve:
+    post:
+      tags: [alerts]
+      operationId: resolveAlert
+      summary: Resolve an alert
+      description: >-
+        Any member of the alert's channel. Posts "Resolved by <name>: <text>" in the alert's
+        thread. Resolving a resolved alert returns it unchanged. Recorded in the audit log.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AlertId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveAlertRequest"
+      responses:
+        "200":
+          description: The alert message (state `resolved`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /pairing/requests:
+    post:
+      tags: [pairing]
+      operationId: createPairingRequest
+      summary: Ask the admin to pair an app
+      description: >-
+        No authentication (the network gate applies). The app shows `code` to the admin, who
+        sees the request with the code, the source address and the CA fingerprint in the
+        admin UI and approves it; the app polls `GET /pairing/requests/{id}` with
+        `poll_secret` and receives its token. The poll secret is shown only here. Limited to
+        5 requests per minute per source address and 20 pending requests (`429`); a request
+        expires after 10 minutes.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairingRequestInput"
+      responses:
+        "201":
+          description: The request was opened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /pairing/requests/{id}:
+    get:
+      tags: [pairing]
+      operationId: getPairingRequest
+      summary: Poll a pairing request
+      description: >-
+        No authentication besides the poll secret in `X-Poll-Secret`; a missing or wrong
+        secret is `404` whatever the state. While the admin has not decided the state is
+        `pending`. After approval the first poll answers `claimed` together with the token
+        and every later poll answers `claimed` without it, so the token is returned exactly
+        once. Other states: `denied`, `expired` (10 minutes after the request, or 5 minutes
+        after an approval that was never claimed; that app is then disabled). Limited per
+        source address.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/PairingId"
+        - $ref: "#/components/parameters/PollSecret"
+      responses:
+        "200":
+          description: The state of the request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingStatus"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/apps:
+    get:
+      tags: [admin]
+      operationId: listApps
+      summary: List apps with their tokens
+      description: Admin only, browser session only. Tokens show their prefix, never the secret.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Every app.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [admin]
+      operationId: createApp
+      summary: Create an app and its bot account
+      description: >-
+        Admin only, browser session only. Creates the app and a bot user (kind `app`, role
+        member, no password) whose username is `username` or derived from `name`. Add the
+        bot to channels with `PUT /channels/{id}/members/{user_id}` (admins only) and issue
+        a token with `POST /admin/apps/{id}/tokens`. Audited.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAppRequest"
+      responses:
+        "201":
+          description: The app.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/App"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/apps/{id}:
+    patch:
+      tags: [admin]
+      operationId: updateApp
+      summary: Rename, describe, disable or enable an app
+      description: >-
+        Admin only, browser session only. A disabled app's tokens are rejected (`401`)
+        until the app is enabled again. Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAppRequest"
+      responses:
+        "200":
+          description: The updated app.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/App"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/apps/{id}/tokens:
+    post:
+      tags: [admin]
+      operationId: createAppToken
+      summary: Issue an app token
+      description: >-
+        Admin only, browser session only. The answer is the only time the token and its
+        connection string (`bubbles://<host>:<port>/?token=bub_...&fp=sha256:<CA fingerprint>`)
+        are shown; the server keeps the SHA-256 and the 8-character prefix. Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAppTokenRequest"
+      responses:
+        "201":
+          description: The new token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuedAppToken"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/apps/{id}/tokens/{token_id}:
+    delete:
+      tags: [admin]
+      operationId: revokeAppToken
+      summary: Revoke an app token
+      description: >-
+        Admin only, browser session only. Takes effect on the token's next request.
+        Idempotent. Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+        - $ref: "#/components/parameters/AppTokenId"
+      responses:
+        "204":
+          description: The token is revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/pairing-requests:
+    get:
+      tags: [admin]
+      operationId: listPairingRequests
+      summary: Open pairing requests
+      description: >-
+        Admin only, browser session only. Pending, unexpired requests, oldest first, each
+        with the code the app shows, the source address and the CA fingerprint to compare.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The open requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PendingPairingList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/pairing-requests/{id}/approve:
+    post:
+      tags: [admin]
+      operationId: approvePairingRequest
+      summary: Approve a pairing request
+      description: >-
+        Admin only, browser session only. In one transaction: creates the app and its bot,
+        records the approved `scopes` (default: the requested scopes), adds the bot to
+        `channel_ids` and, with `create_channel`, to a new public `<app>-alerts` channel.
+        No token is created here: the app's first poll mints it. Only a pending request
+        can be approved (`409` otherwise). Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PairingId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovePairingRequest"
+      responses:
+        "200":
+          description: The new app and the channels its bot joined.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingApproval"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/pairing-requests/{id}/deny:
+    post:
+      tags: [admin]
+      operationId: denyPairingRequest
+      summary: Deny a pairing request
+      description: Admin only, browser session only. Only a pending request can be denied (`409` otherwise). Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PairingId"
+      responses:
+        "204":
+          description: The request is denied.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/webhooks:
+    get:
+      tags: [admin]
+      operationId: listWebhooks
+      summary: List incoming webhooks
+      description: >-
+        Admin only, browser session only. Every webhook, revoked ones included. The secret URL
+        is never listed; it is shown once, when the webhook is created.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Every webhook, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [admin]
+      operationId: createWebhook
+      summary: Create an incoming webhook
+      description: >-
+        Admin only, browser session only. Creates a pseudo-app and its bot account (named
+        after `name`, kind `app`), adds the bot to the channel and mints a secret URL
+        (`https://<first LAN host>:<https port>/hooks/bwh_...`). The URL is in this answer
+        only; the server keeps just its SHA-256. Audited.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookRequest"
+      responses:
+        "201":
+          description: The webhook and its URL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedWebhook"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/webhooks/{id}:
+    delete:
+      tags: [admin]
+      operationId: revokeWebhook
+      summary: Revoke an incoming webhook
+      description: >-
+        Admin only, browser session only. The URL answers `404` from now on and the
+        pseudo-app is disabled. Idempotent. Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WebhookId"
+      responses:
+        "204":
+          description: The webhook is revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/reset/preview:
+    get:
+      tags: [admin]
+      operationId: resetPreview
+      summary: Count what a reset would delete
+      description: >-
+        Admin only, browser session only. The counts the Danger-zone confirmation dialog shows:
+        human accounts, channels (DMs included), messages, file rows and the stored size of the
+        distinct uploaded files.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Current counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetPreview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/reset:
+    post:
+      tags: [admin]
+      operationId: resetServer
+      summary: Clear content or factory reset the server
+      description: |-
+        Admin only, browser session only (app and device tokens are refused), Origin-checked.
+        `confirm` must equal the instance name and `password` is the admin's own password; a
+        wrong one is `403` and is audited (`system.reset_denied`). Every attempt counts: 3 per
+        hour per admin, then `429`. The `web_reset_enabled` setting turns this endpoint off
+        (`403`); `bubbles reset` on the server console always works.
+
+        While the reset runs every request except `GET /healthz` answers `503`
+        `{"error":{"code":"unavailable","message":"resetting"}}` with `Retry-After: 5`, and every
+        WebSocket is closed with `4011` (content) or `4010` (factory).
+
+        - `content` deletes every message (threads and system messages included), reaction, pin,
+          mention, alert, file, the search index and the event history, resets unread state and
+          bumps the instance `epoch`. Accounts, sessions, channels, memberships, apps, tokens,
+          webhooks, invites and settings stay. Answer: `ContentCleared`.
+        - `factory` wipes the data directory (database, Web Push keys, logs, backups, uploads)
+          and returns the server to the setup wizard under a new `instance_id`. The CA is kept
+          unless `rotate_ca`; settings are dropped unless `keep_settings`. Answer:
+          `FactoryReset`, with the new one-time setup token for the admin who ran it.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetRequest"
+      responses:
+        "200":
+          description: The reset is complete.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ContentCleared"
+                  - $ref: "#/components/schemas/FactoryReset"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/backup:
+    post:
+      tags: [admin]
+      operationId: downloadBackup
+      summary: Download an encrypted backup
+      description: >-
+        Admin only, browser session only. Streams an age-encrypted (scrypt) `.bbk` archive of the
+        data directory, the same format as `bubbles backup`, as an attachment. The passphrase
+        is required: web backups are always encrypted.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BackupRequest"
+      responses:
+        "200":
+          description: The archive.
+          headers:
+            Content-Disposition:
+              description: "`attachment; filename=\"bubbles-<YYYYMMDD-HHMMSS>.bbk\"`."
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /hooks/{token}:
+    post:
+      tags: [webhooks]
+      operationId: postWebhook
+      summary: Post a message or an alert through an incoming webhook
+      description: |-
+        Served at the server root, not under `/api/v1`. No authentication besides the secret
+        token in the path (`bwh_...`, shown once when an admin creates the webhook); the
+        network gate applies, the `Origin` check does not. An unknown or revoked token is
+        `404`. The body is limited to 256 KiB and is either `application/json` or
+        `application/x-www-form-urlencoded` with the JSON document in a `payload` field
+        (Slack's legacy form). The answer is `200` with the plain text `ok`, like Slack.
+
+        A document with an `alert` object is a native alert: `{"text"?, "username"?,
+        "alert": {severity, title, text?, fields?, link?, dedupe_key, renotify_after_s?}}`.
+        It goes through the alerts service with the webhook's pseudo-app as its source, in
+        the webhook's channel, and repeats under one `dedupe_key` update one message.
+        `username` does not apply to alerts.
+
+        Every other document is read as the Slack subset: `text` (mrkdwn), `username`,
+        `icon_emoji` (a `:shortcode:`, shown as an emoji prefix; `icon_url` is ignored),
+        `attachments[]` (`color`, `pretext`, `title`, `title_link`, `text`, `fields`,
+        `footer`, `ts`, `fallback`, `blocks`) and `blocks[]` (`header`, `section`,
+        `divider`, `context`, `image` as a link, `actions` buttons that have a url as links;
+        any other block leaves an `(unsupported block)` note). It is translated to Markdown
+        without raw HTML: mrkdwn `<url|text>` becomes a link (http, https and mailto only),
+        `*bold*`, `_italic_` and `~strike~` become Markdown, `&lt;`, `&gt;` and `&amp;`
+        are decoded, and `<@U...>`, `<#C...>`, `<!channel>`, `<!here>`, `<!everyone>` and
+        `<!subteam^...>` are removed. A message is stored without mentions whatever it
+        says: no payload can notify anyone. `username` (control characters stripped, at
+        most 64 characters) is only the display name of the message, shown by clients with
+        a "webhook" badge; it never refers to a real user. A document that translates to
+        nothing is `400`.
+
+        Each webhook accepts 30 posts per minute (burst 10); over that, `429` with
+        `Retry-After`.
+      servers:
+        - url: /
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/WebhookToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookPayload"
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [payload]
+              properties:
+                payload:
+                  type: string
+                  description: The JSON document, as for `application/json`.
+      responses:
+        "200":
+          description: Accepted.
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: ["ok"]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          description: Request body larger than 256 KiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: Content-Type is neither application/json nor application/x-www-form-urlencoded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/overview:
+    get:
+      tags: [admin]
+      operationId: getAdminOverview
+      summary: Server overview
+      description: >-
+        Admin only, browser session only. Version, uptime, user and connection counts, storage used,
+        free disk space, the CA fingerprint and certificate expiry, the HTTPS and onboarding URLs
+        and `client_isolation_hint` (true while no device other than the server itself has signed
+        in).
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOverview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/settings:
+    get:
+      tags: [admin]
+      operationId: getAdminSettings
+      summary: Read every setting
+      description: >-
+        Admin only, browser session only.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    patch:
+      tags: [admin]
+      operationId: updateAdminSettings
+      summary: Change settings
+      description: >-
+        Admin only, browser session only. The body holds any of the setting keys; every value is
+        validated first and either all are stored or none (`400` lists the rejected keys in
+        `details.fields`). Audited (`settings.update`).
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSettingsPatch"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSettings"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/users:
+    get:
+      tags: [admin]
+      operationId: listAdminUsers
+      summary: List accounts
+      description: >-
+        Admin only, browser session only. Human accounts, deactivated ones included.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/users/{id}:
+    patch:
+      tags: [admin]
+      operationId: updateAdminUser
+      summary: Change a role or (de)activate an account
+      description: >-
+        Admin only, browser session only. Deactivating ends every session, device token and app
+        token of the user in the same transaction and closes their open sockets; messages stay.
+        `409` when the change would leave no active admin or targets the caller. Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAdminUserRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/users/{id}/password-reset:
+    post:
+      tags: [admin]
+      operationId: createPasswordReset
+      summary: Create a one-time password-reset link
+      description: >-
+        Admin only, browser session only. The link is valid for 24 hours and appears in this answer
+        only. Earlier unused links of the user stop working. Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "201":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordResetLink"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/users/{id}/sessions:
+    delete:
+      tags: [admin]
+      operationId: revokeUserSessions
+      summary: Sign a user out everywhere
+      description: >-
+        Admin only, browser session only. Ends every session and revokes every device token of the user; their sockets close.
+        Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Done.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/invites:
+    get:
+      tags: [admin]
+      operationId: listAdminInvites
+      summary: List invites
+      description: >-
+        Admin only, browser session only. Never includes the codes.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInviteList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [admin]
+      operationId: createAdminInvite
+      summary: Create an invite link
+      description: >-
+        Admin only, browser session only. The body is optional (member, 72 hours, one use). The link
+        with its secret code appears in this answer only. Audited.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInviteRequest"
+      responses:
+        "201":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedInvite"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/invites/{id}:
+    delete:
+      tags: [admin]
+      operationId: revokeAdminInvite
+      summary: Revoke an invite
+      description: >-
+        Admin only, browser session only. Idempotent. Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/InviteId"
+      responses:
+        "204":
+          description: Done.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/channels:
+    get:
+      tags: [admin]
+      operationId: listAdminChannels
+      summary: List public and private channels
+      description: >-
+        Admin only, browser session only. Names, settings and member counts of every public and
+        private channel, whether or not the admin is a member. Never their content: admins cannot
+        read private channels they are not in.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminChannelList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/channels/{id}:
+    patch:
+      tags: [admin]
+      operationId: updateAdminChannel
+      summary: Change retention, default flag or archived state
+      description: >-
+        Admin only, browser session only. Works on public and private channels without membership
+        (`404` for DMs). `retention_days` null keeps messages forever. Audited.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAdminChannelRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/audit:
+    get:
+      tags: [admin]
+      operationId: listAudit
+      summary: Read the audit log
+      description: >-
+        Admin only, browser session only. Newest first, optionally only one `action`; page with the
+        opaque `cursor`.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          description: Opaque cursor from `next_cursor`.
+          schema: {type: string, maxLength: 100}
+        - name: action
+          in: query
+          description: Only rows with exactly this action.
+          schema: {type: string, maxLength: 64}
+        - name: limit
+          in: query
+          description: Page size.
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/tls:
+    get:
+      tags: [admin]
+      operationId: getAdminTLS
+      summary: Certificate and CA status
+      description: >-
+        Admin only, browser session only. `ca_fingerprint` is empty in `byo` mode.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTLS"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+  /admin/tls/reissue:
+    post:
+      tags: [admin]
+      operationId: reissueTLS
+      summary: Re-issue the leaf certificate
+      description: >-
+        Admin only, browser session only. Issues a new leaf from the same CA for the current
+        addresses; devices keep trusting it. `409` in `byo` mode. Audited.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTLS"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-bubbles_session
+      description: Session cookie set by login, setup, invite accept and register.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: An app token (`bub_...`) issued by an admin; see the Authentication note.
+    deviceAuth:
+      type: http
+      scheme: bearer
+      description: A tray device token (`bub_...`) from `POST /auth/device-login`; limited to the device routes.
+
+  parameters:
+    Code:
+      name: code
+      in: path
+      required: true
+      description: One-time invite or password-reset code from the link.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: User id.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    InviteId:
+      name: id
+      in: path
+      required: true
+      description: Invite id.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    ChannelId:
+      name: id
+      in: path
+      required: true
+      description: Channel id.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    MessageId:
+      name: id
+      in: path
+      required: true
+      description: Message id (a root message or a reply).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    MemberUserId:
+      name: user_id
+      in: path
+      required: true
+      description: User id of the member.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    PinMessageId:
+      name: message_id
+      in: path
+      required: true
+      description: Id of the message to pin or unpin.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    Emoji:
+      name: emoji
+      in: path
+      required: true
+      description: |
+        The emoji as one percent-encoded UTF-8 path segment, for example
+        `%F0%9F%91%8D`. Multi-codepoint emoji (ZWJ sequences, skin tones, flags)
+        are one reaction and round-trip unchanged. At most 64 bytes of UTF-8, which is
+        at most 192 characters once percent-encoded.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 192
+    Before:
+      name: before
+      in: query
+      description: Page of items older than this id, newest last. Exclusive with `after` and `around`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    After:
+      name: after
+      in: query
+      description: Page of items newer than this id. Exclusive with `before` and `around`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    Around:
+      name: around
+      in: query
+      description: Page centred on this id. Exclusive with `before` and `after`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    Limit:
+      name: limit
+      in: query
+      description: Page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+
+    AlertId:
+      name: id
+      in: path
+      required: true
+      description: Id of the alert (its message id).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    AppId:
+      name: id
+      in: path
+      required: true
+      description: App id.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    AppTokenId:
+      name: token_id
+      in: path
+      required: true
+      description: App token id (not the secret).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    PairingId:
+      name: id
+      in: path
+      required: true
+      description: Pairing request id.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    WebhookId:
+      name: id
+      in: path
+      required: true
+      description: Webhook id (not the secret token).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    WebhookToken:
+      name: token
+      in: path
+      required: true
+      description: The webhook's secret token (`bwh_...`).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    PollSecret:
+      name: X-Poll-Secret
+      in: header
+      required: true
+      description: The poll secret returned when the request was created.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+
+  headers:
+    SetCookie:
+      description: Sets or clears `__Host-bubbles_session` (Secure; HttpOnly; SameSite=Strict; Path=/).
+      schema:
+        type: string
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema:
+        type: integer
+        minimum: 1
+
+  responses:
+    SessionStarted:
+      description: The account was signed in; the session cookie is set.
+      headers:
+        Set-Cookie:
+          $ref: "#/components/headers/SetCookie"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AuthResponse"
+    BadRequest:
+      description: Malformed or invalid request. Validation failures list the fields in `details.fields`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: bad_request
+              message: one or more fields are invalid
+              details:
+                fields:
+                  password: must be at least 10 characters
+    Unauthorized:
+      description: Not signed in, or (login) invalid username or password.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Refused - cross-origin request, source address not allowed, wrong setup token, registration closed, or the caller's role or token may not do this to a resource it can see.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: No such resource, an invite / reset code that is not usable, or a channel, message or user the caller cannot see (existence is never revealed with 403).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: State conflict - setup already completed, username or channel name taken, archived channel (read-only), or deleted message.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooLarge:
+      description: Request body larger than 1 MiB (JSON endpoints).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UnsupportedMedia:
+      description: Content-Type is not application/json.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Too many requests. Wait `Retry-After` seconds.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InsufficientStorage:
+      description: The data volume has less free space than the `disk_reserve_bytes` setting.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    FileContent:
+      description: The file or its thumbnail.
+      headers:
+        Content-Disposition:
+          description: "`inline; filename=...` for allowlisted types, else `attachment; filename=...` (RFC 6266, with `filename*` for non-ASCII names)."
+          schema:
+            type: string
+        ETag:
+          description: The SHA-256 of the content, quoted.
+          schema:
+            type: string
+        Cache-Control:
+          description: "`private, max-age=31536000, immutable`."
+          schema:
+            type: string
+        Content-Security-Policy:
+          description: "`sandbox; default-src 'none'; img-src 'self'; media-src 'self'`."
+          schema:
+            type: string
+        Cross-Origin-Resource-Policy:
+          description: "`same-origin`."
+          schema:
+            type: string
+        X-Content-Type-Options:
+          description: "`nosniff`."
+          schema:
+            type: string
+      content:
+        image/*:
+          schema:
+            type: string
+            format: binary
+        video/*:
+          schema:
+            type: string
+            format: binary
+        audio/*:
+          schema:
+            type: string
+            format: binary
+        application/octet-stream:
+          schema:
+            type: string
+            format: binary
+    Unavailable:
+      description: The server is busy, shutting down or in maintenance.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Internal:
+      description: Unexpected server error (and any other status not listed for the operation).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      description: The error envelope.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - bad_request
+            - unauthorized
+            - forbidden
+            - not_found
+            - conflict
+            - too_large
+            - unsupported_media
+            - rate_limited
+            - insufficient_storage
+            - unavailable
+            - internal
+        message:
+          type: string
+          description: Human-readable text; never contains secrets.
+        details:
+          type: object
+          description: Optional machine-readable context.
+          properties:
+            fields:
+              type: object
+              description: Validation failures, request field to reason.
+              additionalProperties:
+                type: string
+          additionalProperties: true
+
+    Health:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+
+    SetupStatus:
+      type: object
+      required: [needs_setup]
+      properties:
+        needs_setup:
+          type: boolean
+
+    SetupRequest:
+      type: object
+      required: [setup_token, username, password, instance_name]
+      properties:
+        setup_token:
+          type: string
+          maxLength: 256
+        username:
+          $ref: "#/components/schemas/Username"
+        password:
+          $ref: "#/components/schemas/PasswordInput"
+        display_name:
+          type: string
+          maxLength: 256
+        instance_name:
+          type: string
+          maxLength: 256
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          maxLength: 256
+        password:
+          type: string
+          maxLength: 1024
+
+    AcceptInviteRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          $ref: "#/components/schemas/Username"
+        password:
+          $ref: "#/components/schemas/PasswordInput"
+        display_name:
+          type: string
+          maxLength: 256
+
+    RegisterRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          $ref: "#/components/schemas/Username"
+        password:
+          $ref: "#/components/schemas/PasswordInput"
+        display_name:
+          type: string
+          maxLength: 256
+
+    ResetPasswordRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          $ref: "#/components/schemas/PasswordInput"
+
+    ChangePasswordRequest:
+      type: object
+      required: [current, new]
+      properties:
+        current:
+          type: string
+          maxLength: 1024
+        new:
+          $ref: "#/components/schemas/PasswordInput"
+
+    Username:
+      type: string
+      maxLength: 256
+      description: 2-32 characters of lowercase letters, digits, `.`, `_`, `-` (input is trimmed and lower-cased).
+
+    PasswordInput:
+      type: string
+      maxLength: 1024
+      description: |
+        Policy: 10-128 characters and not one of the 10,000 most common passwords.
+        Violations are `400` with `details.fields`.
+
+    AuthResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: "#/components/schemas/Me"
+
+    InviteInfo:
+      type: object
+      required: [valid, instance_name]
+      properties:
+        valid:
+          type: boolean
+        role:
+          $ref: "#/components/schemas/Role"
+        instance_name:
+          type: string
+
+    Role:
+      type: string
+      enum: [admin, member, guest]
+
+    User:
+      type: object
+      required: [id, username, display_name, kind, role, avatar_file_id, status_text, deactivated, created_at]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+        username:
+          type: string
+        display_name:
+          type: string
+        kind:
+          type: string
+          enum: [human, app]
+        role:
+          $ref: "#/components/schemas/Role"
+        avatar_file_id:
+          type: [string, "null"]
+        status_text:
+          type: string
+        deactivated:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    Me:
+      description: The signed-in user's own view.
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          required: [prefs, must_change_pw]
+          properties:
+            prefs:
+              type: object
+              additionalProperties: true
+            must_change_pw:
+              type: boolean
+
+    Session:
+      type: object
+      required: [id, kind, current, created_at, last_seen_at, idle_expires_at, abs_expires_at, user_agent, ip]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        kind:
+          type: string
+          enum: [web, handoff]
+        current:
+          type: boolean
+          description: True for the session that made this request.
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        idle_expires_at:
+          type: string
+          format: date-time
+        abs_expires_at:
+          type: string
+          format: date-time
+        user_agent:
+          type: string
+        ip:
+          type: string
+
+    SessionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+
+    DeviceLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password, device_name]
+      properties:
+        username:
+          type: string
+          maxLength: 256
+        password:
+          type: string
+          maxLength: 1024
+        device_name:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Shown in the device list; at most 64 printable characters after trimming.
+
+    DeviceLoginResponse:
+      type: object
+      required: [device_token, device_id, handoff_code]
+      properties:
+        device_token:
+          type: string
+          description: The device token (`bub_...`). Shown once; the SHA-256 is stored.
+        device_id:
+          type: string
+        handoff_code:
+          type: string
+          description: One-time code for `GET /auth/handoff`, valid for 60 seconds.
+
+    HandoffCodeResponse:
+      type: object
+      required: [handoff_code]
+      properties:
+        handoff_code:
+          type: string
+
+    Device:
+      type: object
+      required: [id, name, prefix, scopes, current, created_at, last_used_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [events:read, messages:read, notify]
+        current:
+          type: boolean
+          description: True for the device whose token made this request.
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: [string, "null"]
+          format: date-time
+
+    DeviceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Device"
+
+    Id:
+      type: string
+      description: A ULID. Ids sort in creation order.
+      pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+
+    Channel:
+      type: object
+      additionalProperties: false
+      description: >-
+        A channel or direct message. DMs and group DMs have no name; `participant_ids` lists
+        their participants.
+      required: [id, kind, name, topic, description, is_default, retention_days, created_by, created_at, archived_at, member_count]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        kind:
+          type: string
+          enum: [public, private, dm, group_dm]
+        name:
+          type: [string, "null"]
+        topic:
+          type: string
+        description:
+          type: string
+        is_default:
+          type: boolean
+        retention_days:
+          type: [integer, "null"]
+          minimum: 1
+        created_by:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: [string, "null"]
+          format: date-time
+        member_count:
+          type: integer
+          minimum: 0
+        participant_ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/Id"
+
+    Membership:
+      type: object
+      additionalProperties: false
+      description: >-
+        A user's membership of a channel, with their notification settings.
+      required: [channel_id, user_id, role, joined_at, last_read_id, notify_level, alert_min_severity, muted_until]
+      properties:
+        channel_id:
+          $ref: "#/components/schemas/Id"
+        user_id:
+          $ref: "#/components/schemas/Id"
+        role:
+          type: string
+          enum: [owner, member]
+        joined_at:
+          type: string
+          format: date-time
+        last_read_id:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        notify_level:
+          type: string
+          enum: [all, mentions, none]
+        alert_min_severity:
+          type: string
+          enum: [info, warning, critical]
+        muted_until:
+          type: [string, "null"]
+          format: date-time
+
+    Member:
+      type: object
+      additionalProperties: false
+      description: >-
+        One entry of a channel's member list.
+      required: [user_id, role, joined_at]
+      properties:
+        user_id:
+          $ref: "#/components/schemas/Id"
+        role:
+          type: string
+          enum: [owner, member]
+        joined_at:
+          type: string
+          format: date-time
+
+    Unread:
+      type: object
+      additionalProperties: false
+      description: >-
+        Unread counters of one channel.
+      required: [channel_id, unread, mentions]
+      properties:
+        channel_id:
+          $ref: "#/components/schemas/Id"
+        unread:
+          type: integer
+          minimum: 0
+        mentions:
+          type: integer
+          minimum: 0
+
+    SettingsPublic:
+      type: object
+      additionalProperties: false
+      description: >-
+        The settings every signed-in client may know.
+      required: [instance_name, upload_max_bytes, web_push_enabled]
+      properties:
+        instance_name:
+          type: string
+        upload_max_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        web_push_enabled:
+          type: boolean
+
+    Bootstrap:
+      type: object
+      additionalProperties: false
+      description: >-
+        The client snapshot. It is consistent with `seq_head`: replaying events after it
+        converges to the current state. A new `instance_id` or a higher `epoch` than the client
+        remembers means the server was reset.
+      required: [instance_id, epoch, me, users, channels, memberships, unread, settings_public, seq_head]
+      properties:
+        instance_id:
+          type: string
+        epoch:
+          type: integer
+          format: int64
+          minimum: 0
+        me:
+          $ref: "#/components/schemas/Me"
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/Channel"
+        memberships:
+          type: array
+          items:
+            $ref: "#/components/schemas/Membership"
+        unread:
+          type: array
+          items:
+            $ref: "#/components/schemas/Unread"
+        settings_public:
+          $ref: "#/components/schemas/SettingsPublic"
+        seq_head:
+          type: integer
+          format: int64
+          minimum: 0
+
+    Author:
+      type: object
+      additionalProperties: false
+      description: >-
+        Who wrote a message.
+      required: [id, username, display_name, kind, avatar_url]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        username:
+          type: string
+        display_name:
+          type: string
+        kind:
+          type: string
+          enum: [human, app]
+        avatar_url:
+          type: [string, "null"]
+
+    File:
+      type: object
+      additionalProperties: false
+      description: >-
+        An uploaded file: the answer of `POST /files` and the element of a message's `files`.
+        `category` is `image`, `video` or `audio` only for the types that are shown inline;
+        everything else, including images that could not be processed, is `file`. `width` and
+        `height` are set for processed images. `meta_stripped` is false when the file may still
+        carry metadata (HEIC, video, audio, documents, unprocessed images).
+      required: [id, name, size, mime, category, width, height, has_thumb, meta_stripped, url, thumb_url]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        mime:
+          type: string
+        category:
+          type: string
+          enum: [image, video, audio, file]
+        width:
+          type: [integer, "null"]
+        height:
+          type: [integer, "null"]
+        has_thumb:
+          type: boolean
+        meta_stripped:
+          type: boolean
+        url:
+          type: string
+        thumb_url:
+          type: [string, "null"]
+
+    Reaction:
+      type: object
+      additionalProperties: false
+      description: >-
+        One emoji on a message and who used it.
+      required: [emoji, count, user_ids]
+      properties:
+        emoji:
+          type: string
+        count:
+          type: integer
+          minimum: 1
+        user_ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/Id"
+
+    Mentions:
+      type: object
+      additionalProperties: false
+      description: >-
+        Who a message notifies.
+      required: [user_ids, channel, here]
+      properties:
+        user_ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/Id"
+        channel:
+          type: boolean
+        here:
+          type: boolean
+
+    AlertField:
+      type: object
+      additionalProperties: false
+      description: >-
+        A name/value pair of an alert.
+      required: [name, value, short]
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+        short:
+          type: boolean
+
+    Alert:
+      type: object
+      additionalProperties: false
+      description: >-
+        The alert state of an `alert` message.
+      required: [severity, state, title, fields, link, dedupe_key, occurrences, first_seen_at, last_seen_at, acked_by, acked_at, resolved_by, resolved_at]
+      properties:
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        state:
+          type: string
+          enum: [open, acked, resolved]
+        title:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertField"
+        link:
+          type: [string, "null"]
+        dedupe_key:
+          type: string
+        occurrences:
+          type: integer
+          minimum: 1
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        acked_by:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        acked_at:
+          type: [string, "null"]
+          format: date-time
+        resolved_by:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        resolved_at:
+          type: [string, "null"]
+          format: date-time
+
+    Message:
+      type: object
+      additionalProperties: false
+      description: >-
+        A chat message. A deleted message stays as a tombstone (`deleted: true`, empty body).
+      required: [id, channel_id, thread_root_id, kind, author, override_name, body, files, reactions, mentions, reply_count, last_reply_at, edited_at, deleted, created_at, alert]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        channel_id:
+          $ref: "#/components/schemas/Id"
+        thread_root_id:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        kind:
+          type: string
+          enum: [text, alert, system]
+        author:
+          $ref: "#/components/schemas/Author"
+        override_name:
+          type: [string, "null"]
+        body:
+          type: string
+          description: Markdown.
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/File"
+        reactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reaction"
+        mentions:
+          $ref: "#/components/schemas/Mentions"
+        reply_count:
+          type: integer
+          minimum: 0
+        last_reply_at:
+          type: [string, "null"]
+          format: date-time
+        edited_at:
+          type: [string, "null"]
+          format: date-time
+        deleted:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        alert:
+          oneOf:
+            - $ref: "#/components/schemas/Alert"
+            - type: "null"
+
+    MessagePage:
+      type: object
+      additionalProperties: false
+      description: >-
+        A page of messages, oldest first. `has_more_before` / `has_more_after` say whether older
+        / newer messages exist beyond the page.
+      required: [items, has_more_before, has_more_after]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        has_more_before:
+          type: boolean
+        has_more_after:
+          type: boolean
+
+    Thread:
+      type: object
+      additionalProperties: false
+      description: >-
+        A thread: its root and a page of replies, oldest first.
+      required: [root, replies, has_more_before, has_more_after]
+      properties:
+        root:
+          $ref: "#/components/schemas/Message"
+        replies:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        has_more_before:
+          type: boolean
+        has_more_after:
+          type: boolean
+
+    Pin:
+      type: object
+      additionalProperties: false
+      description: >-
+        A pinned message.
+      required: [message, pinned_by, pinned_at]
+      properties:
+        message:
+          $ref: "#/components/schemas/Message"
+        pinned_by:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        pinned_at:
+          type: string
+          format: date-time
+
+    SearchResult:
+      type: object
+      additionalProperties: false
+      description: >-
+        One search hit.
+      required: [message, snippet]
+      properties:
+        message:
+          $ref: "#/components/schemas/Message"
+        snippet:
+          type: string
+          description: >-
+            HTML fragment safe to render as markup: message text is HTML-escaped and the only tags
+            are `<mark>` and `</mark>` around matched terms.
+
+    SearchPage:
+      type: object
+      additionalProperties: false
+      description: >-
+        A page of search results, best match first.
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/SearchResult"
+        next_cursor:
+          type: [string, "null"]
+          description: Opaque cursor of the next page; null on the last page.
+
+    ReadState:
+      type: object
+      additionalProperties: false
+      description: >-
+        A channel's read marker and counters after marking it read.
+      required: [channel_id, last_read_id, unread, mentions]
+      properties:
+        channel_id:
+          $ref: "#/components/schemas/Id"
+        last_read_id:
+          $ref: "#/components/schemas/Id"
+        unread:
+          type: integer
+          minimum: 0
+        mentions:
+          type: integer
+          minimum: 0
+
+    UserList:
+      type: object
+      additionalProperties: false
+      description: >-
+        Users ordered by id.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+
+    ChannelList:
+      type: object
+      additionalProperties: false
+      description: >-
+        Channels.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Channel"
+
+    MemberList:
+      type: object
+      additionalProperties: false
+      description: >-
+        Members, oldest first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Member"
+
+    PinList:
+      type: object
+      additionalProperties: false
+      description: >-
+        Pins, newest first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Pin"
+
+    ReactionList:
+      type: object
+      additionalProperties: false
+      description: >-
+        A message's reactions.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reaction"
+
+    CreateChannelRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /channels`. Names are trimmed and lower-cased (a leading `#` is dropped); they
+        may contain only letters, digits and hyphens, at most 64 characters, and are unique among
+        channels.
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        kind:
+          type: string
+          enum: [public, private]
+        topic:
+          type: string
+          maxLength: 250
+        member_ids:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/Id"
+
+    UpdateMeRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `PATCH /me`; omitted fields stay as they are.
+      properties:
+        display_name:
+          type: string
+          maxLength: 256
+          description: At most 64 characters after trimming; empty means the username. Not null.
+        status_text:
+          type: [string, "null"]
+          maxLength: 1024
+          description: At most 100 characters; null clears it.
+        avatar_file_id:
+          type: [string, "null"]
+          maxLength: 64
+          description: An image file uploaded by the caller; null removes the avatar.
+        prefs:
+          type: object
+          additionalProperties: true
+          description: The new preferences object (at most 4096 bytes of JSON); replaces the old one.
+
+    UpdateChannelRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `PATCH /channels/{id}`; omitted fields stay as they are.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        topic:
+          type: string
+          maxLength: 250
+        description:
+          type: string
+          maxLength: 1000
+        retention_days:
+          type: [integer, "null"]
+          minimum: 1
+          description: Days to keep messages; null removes the channel's own retention. Capped by the server-wide maximum.
+
+    AddMemberRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Optional body of `PUT /channels/{id}/members/{user_id}`.
+      properties:
+        role:
+          type: string
+          enum: [owner, member]
+          default: member
+
+    UpdateMembershipRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `PATCH /channels/{id}/membership`; omitted fields stay as they are.
+      properties:
+        notify_level:
+          type: string
+          enum: [all, mentions, none]
+        alert_min_severity:
+          type: string
+          enum: [info, warning, critical]
+        muted_until:
+          type: [string, "null"]
+          format: date-time
+          description: Mute until this time; null unmutes.
+
+    MarkReadRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /channels/{id}/read`.
+      required: [message_id]
+      properties:
+        message_id:
+          $ref: "#/components/schemas/Id"
+
+    StartDMRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /dms`.
+      required: [user_ids]
+      properties:
+        user_ids:
+          type: array
+          maxItems: 9
+          items:
+            $ref: "#/components/schemas/Id"
+          description: The other participants; the caller is added.
+
+    CreateMessageRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /channels/{id}/messages`.
+      required: [body]
+      properties:
+        body:
+          type: string
+          maxLength: 8000
+          description: Markdown. May be empty only when files are attached.
+        thread_root_id:
+          $ref: "#/components/schemas/Id"
+        file_ids:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/Id"
+        nonce:
+          type: string
+          maxLength: 64
+          description: Client-chosen idempotency key, unique per author. Posting the same nonce again returns the first message.
+
+    EditMessageRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `PATCH /messages/{id}`.
+      required: [body]
+      properties:
+        body:
+          type: string
+          maxLength: 8000
+
+    PushKeys:
+      type: object
+      additionalProperties: false
+      description: >-
+        The keys of a browser `PushSubscription` (`toJSON().keys`), base64url
+        without padding (RFC 8291).
+      required: [p256dh, auth]
+      properties:
+        p256dh:
+          type: string
+          maxLength: 128
+          description: The client's uncompressed P-256 public key (65 bytes).
+        auth:
+          type: string
+          maxLength: 64
+          description: The client's 16-byte authentication secret.
+
+    PushSubscribeRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /push/subscriptions`.
+      required: [endpoint, keys]
+      properties:
+        endpoint:
+          type: string
+          maxLength: 2048
+          description: The push service URL of the subscription (https, known push service host).
+        keys:
+          $ref: "#/components/schemas/PushKeys"
+
+    PushUnsubscribeRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `DELETE /push/subscriptions`.
+      required: [endpoint]
+      properties:
+        endpoint:
+          type: string
+          maxLength: 2048
+
+    PushVapidKey:
+      type: object
+      additionalProperties: false
+      description: >-
+        The VAPID public key (base64url, uncompressed P-256 point).
+      required: [key]
+      properties:
+        key:
+          type: string
+
+    Scope:
+      type: string
+      description: A scope an app token can carry.
+      enum: [messages:read, messages:write, alerts:write, files:write, channels:read, events:read, commands, dm:write, mcp]
+
+    AppToken:
+      type: object
+      additionalProperties: false
+      description: >-
+        An app token as listed: its secret is never shown again, only the 8-character
+        `prefix` ("bub_" and four characters). `channel_ids` null means the channels the
+        app's bot is a member of; a list restricts the token to those channels.
+      required: [id, app_id, prefix, scopes, channel_ids, created_at, expires_at, last_used_at, revoked_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        app_id:
+          $ref: "#/components/schemas/Id"
+        prefix:
+          type: string
+          minLength: 8
+          maxLength: 8
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Scope"
+        channel_ids:
+          type: [array, "null"]
+          items:
+            $ref: "#/components/schemas/Id"
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+        last_used_at:
+          type: [string, "null"]
+          format: date-time
+          description: Updated at most once a minute.
+        revoked_at:
+          type: [string, "null"]
+          format: date-time
+
+    App:
+      type: object
+      additionalProperties: false
+      description: >-
+        An integration: a bot account (`user_id`, `username`) plus its tokens. `tokens`
+        lists every token including revoked ones in the admin API, and is empty in
+        `GET /apps/self`.
+      required: [id, user_id, username, name, description, owner_user_id, created_at, disabled_at, tokens]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        user_id:
+          $ref: "#/components/schemas/Id"
+        username:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        owner_user_id:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+        disabled_at:
+          type: [string, "null"]
+          format: date-time
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppToken"
+
+    AppList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/App"
+
+    AppSelf:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `GET /apps/self`.
+      required: [app, token]
+      properties:
+        app:
+          $ref: "#/components/schemas/App"
+        token:
+          $ref: "#/components/schemas/AppToken"
+
+    Command:
+      type: object
+      additionalProperties: false
+      required: [name, description, usage, app_name, builtin]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        usage:
+          type: string
+        app_name:
+          type: string
+          description: Empty for a built-in.
+        builtin:
+          type: boolean
+
+    CommandList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Command"
+
+    CommandInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9-]{1,32}$"
+        description:
+          type: string
+          maxLength: 200
+        usage:
+          type: string
+          maxLength: 200
+
+    InvokeCommandRequest:
+      type: object
+      additionalProperties: false
+      required: [channel_id, command]
+      properties:
+        channel_id:
+          $ref: "#/components/schemas/Id"
+        command:
+          type: string
+        args:
+          type: string
+          maxLength: 4000
+        thread_root_id:
+          $ref: "#/components/schemas/Id"
+
+    InvokedCommand:
+      type: object
+      additionalProperties: false
+      required: [builtin]
+      properties:
+        invocation_id:
+          type: string
+          description: Set for an app command.
+        builtin:
+          type: boolean
+
+    RespondCommandRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 4000
+        ephemeral:
+          type: boolean
+
+    RespondedCommand:
+      type: object
+      additionalProperties: false
+      required: [ephemeral, message]
+      properties:
+        ephemeral:
+          type: boolean
+        message:
+          oneOf:
+            - $ref: "#/components/schemas/Message"
+            - type: "null"
+
+    CreateAppRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /admin/apps`. Without `username` the bot's username is derived from
+        `name` (made unique with a numeric suffix).
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description:
+          type: string
+          maxLength: 500
+        username:
+          type: string
+          pattern: "^[A-Za-z0-9._-]{2,32}$"
+
+    UpdateAppRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `PATCH /admin/apps/{id}`. Absent fields are left alone.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description:
+          type: string
+          maxLength: 500
+        disabled:
+          type: boolean
+
+    CreateAppTokenRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /admin/apps/{id}/tokens`. `channel_ids` absent or null leaves the token
+        without an allowlist; a list (even an empty one) restricts it to those channels, which
+        must exist. `expires_at` must lie in the future.
+      required: [scopes]
+      properties:
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Scope"
+        channel_ids:
+          type: [array, "null"]
+          items:
+            $ref: "#/components/schemas/Id"
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+
+    IssuedAppToken:
+      type: object
+      additionalProperties: false
+      description: >-
+        A new app token. `token` and `connection_string` are shown only in this answer.
+      required: [token, connection_string, info]
+      properties:
+        token:
+          type: string
+          pattern: "^bub_[a-z2-7]{52}$"
+        connection_string:
+          type: string
+          description: "`bubbles://<host>:<https port>/?token=bub_...&fp=sha256:<64 hex CA fingerprint>`."
+        info:
+          $ref: "#/components/schemas/AppToken"
+
+    AlertInput:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /alerts`. `renotify_after_s` is 0 (never) or 10-86400 and defaults to
+        the `alert_renotify_s` setting. `occurred_at` is when the condition was seen (never
+        recorded as later than the server's clock). `link` must be an http or https URL.
+      required: [channel, severity, title, dedupe_key]
+      properties:
+        channel:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: A channel name (a leading `#` is ignored) or id.
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        text:
+          type: string
+          maxLength: 4000
+          description: Markdown.
+        fields:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/AlertInputField"
+        link:
+          type: string
+          maxLength: 2048
+        dedupe_key:
+          type: string
+          minLength: 1
+          maxLength: 200
+        renotify_after_s:
+          type: integer
+          minimum: 0
+          maximum: 86400
+        occurred_at:
+          type: string
+          format: date-time
+
+    AlertInputField:
+      type: object
+      additionalProperties: false
+      required: [name, value]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        value:
+          type: string
+          maxLength: 512
+        short:
+          type: boolean
+
+    PostedAlert:
+      type: object
+      additionalProperties: false
+      description: >-
+        Answer of `POST /alerts`: the alert's message and what the post did to the alert.
+      required: [message, transition]
+      properties:
+        message:
+          $ref: "#/components/schemas/Message"
+        transition:
+          type: string
+          enum: [created, escalated, renotify_due, updated_other]
+
+    ResolveAlertByKeyRequest:
+      type: object
+      additionalProperties: false
+      required: [dedupe_key]
+      properties:
+        dedupe_key:
+          type: string
+          minLength: 1
+          maxLength: 200
+        text:
+          type: string
+          maxLength: 4000
+
+    ResolveAlertRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        text:
+          type: string
+          maxLength: 4000
+
+    AlertPage:
+      type: object
+      additionalProperties: false
+      description: >-
+        A page of alert messages, newest first. `next_cursor` is null on the last page.
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        next_cursor:
+          type: [string, "null"]
+
+    PairingRequestInput:
+      type: object
+      additionalProperties: false
+      required: [app_name]
+      properties:
+        app_name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description:
+          type: string
+          maxLength: 500
+        requested_scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Scope"
+
+    PairingCreated:
+      type: object
+      additionalProperties: false
+      description: >-
+        An open pairing request. Show `code` to the admin; poll with `poll_secret` (shown
+        only here).
+      required: [id, poll_secret, code, expires_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        poll_secret:
+          type: string
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+        expires_at:
+          type: string
+          format: date-time
+
+    PairingStatus:
+      type: object
+      additionalProperties: false
+      description: >-
+        State of a pairing request. `token` is present in exactly one answer: the first
+        poll after the approval, which also moves the state to `claimed`.
+      required: [state, expires_at]
+      properties:
+        state:
+          type: string
+          enum: [pending, approved, denied, expired, claimed]
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    PendingPairing:
+      type: object
+      additionalProperties: false
+      description: >-
+        An open pairing request as the admin sees it. `ca_fingerprint` is the SHA-256
+        fingerprint of the server's CA, to compare with the one the app displays.
+      required: [id, app_name, description, requested_scopes, code, source_ip, ca_fingerprint, created_at, expires_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        app_name:
+          type: string
+        description:
+          type: string
+        requested_scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Scope"
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+        source_ip:
+          type: string
+        ca_fingerprint:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    PendingPairingList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PendingPairing"
+
+    ApprovePairingRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /admin/pairing-requests/{id}/approve`. Without `scopes` the requested
+        scopes are granted.
+      properties:
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Scope"
+        channel_ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/Id"
+        create_channel:
+          type: boolean
+
+    PairingApproval:
+      type: object
+      additionalProperties: false
+      description: >-
+        The app created by an approval and the ids of the channels its bot was added to
+        (the created `<app>-alerts` channel first).
+      required: [app, channel_ids]
+      properties:
+        app:
+          $ref: "#/components/schemas/App"
+        channel_ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/Id"
+
+    Webhook:
+      type: object
+      additionalProperties: false
+      description: >-
+        An incoming webhook. The secret URL is not part of it; only `CreatedWebhook` carries it,
+        once.
+      required: [id, channel_id, app_id, name, created_by, created_at, revoked_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        channel_id:
+          $ref: "#/components/schemas/Id"
+        app_id:
+          $ref: "#/components/schemas/Id"
+        name:
+          type: string
+        created_by:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: [string, "null"]
+          format: date-time
+
+    WebhookList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Webhook"
+
+    CreateWebhookRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /admin/webhooks`. `name` becomes the name of the pseudo-app and of its
+        bot account; `channel_id` is a public or private channel that is not archived.
+      required: [channel_id, name]
+      properties:
+        channel_id:
+          $ref: "#/components/schemas/Id"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+
+    CreatedWebhook:
+      type: object
+      additionalProperties: false
+      description: A new webhook. `url` carries the secret and is shown only in this answer.
+      required: [id, channel_id, app_id, name, created_by, created_at, revoked_at, url]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        channel_id:
+          $ref: "#/components/schemas/Id"
+        app_id:
+          $ref: "#/components/schemas/Id"
+        name:
+          type: string
+        created_by:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: [string, "null"]
+          format: date-time
+        url:
+          type: string
+          description: "`https://<first LAN host>:<https port>/hooks/bwh_...`."
+
+    ResetPreview:
+      type: object
+      additionalProperties: false
+      description: What a reset would delete (`GET /admin/reset/preview`).
+      required: [users, channels, messages, files, bytes]
+      properties:
+        users:
+          type: integer
+          minimum: 0
+        channels:
+          type: integer
+          minimum: 0
+        messages:
+          type: integer
+          minimum: 0
+        files:
+          type: integer
+          minimum: 0
+        bytes:
+          type: integer
+          format: int64
+          minimum: 0
+
+    ResetRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Body of `POST /admin/reset`. `rotate_ca` and `keep_settings` apply to `factory` only
+        (`400` with `content`).
+      required: [mode, confirm, password]
+      properties:
+        mode:
+          type: string
+          enum: [content, factory]
+        confirm:
+          type: string
+          minLength: 1
+          description: The instance name, typed to confirm.
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: The admin's own password.
+        rotate_ca:
+          type: boolean
+          default: false
+          description: Destroy the CA key and issue a new CA; every device must trust it again.
+        keep_settings:
+          type: boolean
+          default: false
+          description: Carry the server settings over.
+
+    ContentCleared:
+      type: object
+      additionalProperties: false
+      description: Answer of a `content` reset. Sessions stay valid; clients resync.
+      required: [epoch]
+      properties:
+        epoch:
+          type: integer
+          format: int64
+          minimum: 2
+
+    FactoryReset:
+      type: object
+      additionalProperties: false
+      description: >-
+        Answer of a `factory` reset: the one-time setup token (valid until setup completes), the
+        URL of the setup wizard and the fingerprint (SHA-256) devices must trust.
+      required: [setup_token, setup_url, ca_rotated, ca_fingerprint]
+      properties:
+        setup_token:
+          type: string
+          minLength: 1
+        setup_url:
+          type: string
+        ca_rotated:
+          type: boolean
+        ca_fingerprint:
+          type: string
+
+    AdminOverview:
+      type: object
+      additionalProperties: false
+      description: Body of `GET /admin/overview`.
+      required: [instance_name, version, started_at, uptime_seconds, users, connections, storage_used_bytes, disk_free_bytes, tls_mode, ca_fingerprint, cert_not_after, https_urls, onboarding_urls, client_isolation_hint]
+      properties:
+        instance_name: {type: string}
+        version: {type: string}
+        started_at: {type: string}
+        uptime_seconds: {type: integer, format: int64, minimum: 0}
+        users: {type: integer, minimum: 0}
+        connections: {type: integer, minimum: 0}
+        storage_used_bytes: {type: integer, format: int64, minimum: 0}
+        disk_free_bytes: {type: [integer, "null"], format: int64, minimum: 0}
+        tls_mode: {type: string}
+        ca_fingerprint: {type: string}
+        cert_not_after: {type: string}
+        https_urls: {type: array, items: {type: string}}
+        onboarding_urls: {type: array, items: {type: string}}
+        client_isolation_hint: {type: boolean}
+
+    AdminSettings:
+      type: object
+      additionalProperties: false
+      description: Every setting with defaults applied.
+      required: [instance_name, open_registration, upload_max_bytes, user_quota_bytes, disk_reserve_bytes, default_retention_days, web_push_enabled, push_payload, allowed_cidrs, session_idle_days, alert_renotify_s, mdns_enabled, web_reset_enabled]
+      properties:
+        instance_name: {type: string, minLength: 1, maxLength: 64}
+        open_registration: {type: boolean}
+        upload_max_bytes: {type: integer, format: int64, minimum: 1, maximum: 2147483648}
+        user_quota_bytes: {type: integer, format: int64, minimum: 0}
+        disk_reserve_bytes: {type: integer, format: int64, minimum: 0}
+        default_retention_days: {type: [integer, "null"], minimum: 1, maximum: 3650}
+        web_push_enabled: {type: boolean}
+        push_payload: {type: string, enum: [minimal, full]}
+        allowed_cidrs: {type: array, items: {type: string}}
+        session_idle_days: {type: integer, minimum: 1, maximum: 90}
+        alert_renotify_s: {type: integer, minimum: 10, maximum: 86400}
+        mdns_enabled: {type: boolean}
+        web_reset_enabled: {type: boolean}
+
+    AdminSettingsPatch:
+      type: object
+      additionalProperties: false
+      description: "Body of `PATCH /admin/settings`: any subset of the settings; at least one key."
+      minProperties: 1
+      properties:
+        instance_name: {type: string}
+        open_registration: {type: boolean}
+        upload_max_bytes: {type: integer, format: int64}
+        user_quota_bytes: {type: integer, format: int64}
+        disk_reserve_bytes: {type: integer, format: int64}
+        default_retention_days: {type: [integer, "null"]}
+        web_push_enabled: {type: boolean}
+        push_payload: {type: string}
+        allowed_cidrs: {type: array, items: {type: string}}
+        session_idle_days: {type: integer}
+        alert_renotify_s: {type: integer}
+        mdns_enabled: {type: boolean}
+        web_reset_enabled: {type: boolean}
+
+    AdminUserList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+
+    UpdateAdminUserRequest:
+      type: object
+      additionalProperties: false
+      description: "Body of `PATCH /admin/users/{id}`; at least one field."
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+        deactivated:
+          type: boolean
+
+    PasswordResetLink:
+      type: object
+      additionalProperties: false
+      description: The one-time link; it is in this answer only.
+      required: [url, expires_at]
+      properties:
+        url: {type: string}
+        expires_at: {type: string, format: date-time}
+
+    AdminInvite:
+      type: object
+      additionalProperties: false
+      description: An invite without its code.
+      required: [id, role, note, created_by, created_at, expires_at, max_uses, use_count, revoked_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        role:
+          $ref: "#/components/schemas/Role"
+        note: {type: string}
+        created_by:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        max_uses: {type: integer, minimum: 1}
+        use_count: {type: integer, minimum: 0}
+        revoked_at: {type: [string, "null"], format: date-time}
+
+    AdminInviteList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminInvite"
+
+    CreateInviteRequest:
+      type: object
+      additionalProperties: false
+      description: Body of `POST /admin/invites`. Absent fields take the defaults.
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+        note: {type: string, maxLength: 200}
+        expires_in_seconds: {type: integer, minimum: 60, maximum: 7776000}
+        max_uses: {type: integer, minimum: 1, maximum: 1000}
+
+    CreatedInvite:
+      type: object
+      additionalProperties: false
+      description: The invite and its link; the link (secret code) is in this answer only.
+      required: [id, role, note, created_by, created_at, expires_at, max_uses, use_count, revoked_at, url]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        role:
+          $ref: "#/components/schemas/Role"
+        note: {type: string}
+        created_by:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        max_uses: {type: integer, minimum: 1}
+        use_count: {type: integer, minimum: 0}
+        revoked_at: {type: [string, "null"], format: date-time}
+        url: {type: string}
+
+    AdminChannelList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Channel"
+
+    UpdateAdminChannelRequest:
+      type: object
+      additionalProperties: false
+      description: "Body of `PATCH /admin/channels/{id}`. Absent fields stay; `retention_days` null means forever."
+      properties:
+        retention_days: {type: [integer, "null"], minimum: 1, maximum: 3650}
+        is_default: {type: boolean}
+        archived: {type: boolean}
+
+    AuditEntry:
+      type: object
+      additionalProperties: false
+      required: [id, at, actor_id, actor_kind, actor_ip, action, target_type, target_id, detail]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        at: {type: string, format: date-time}
+        actor_id:
+          oneOf:
+            - $ref: "#/components/schemas/Id"
+            - type: "null"
+        actor_kind: {type: string}
+        actor_ip: {type: string}
+        action: {type: string}
+        target_type: {type: string}
+        target_id: {type: string}
+        detail: {type: object}
+
+    AuditPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        next_cursor: {type: [string, "null"]}
+
+    AdminTLS:
+      type: object
+      additionalProperties: false
+      required: [mode, ca_fingerprint, leaf_fingerprint, leaf_not_after, sans]
+      properties:
+        mode: {type: string, enum: [local-ca, byo]}
+        ca_fingerprint: {type: string}
+        leaf_fingerprint: {type: string}
+        leaf_not_after: {type: string, format: date-time}
+        sans: {type: array, items: {type: string}}
+
+    BackupRequest:
+      type: object
+      additionalProperties: false
+      description: Body of `POST /admin/backup`.
+      required: [passphrase]
+      properties:
+        passphrase:
+          type: string
+          minLength: 1
+
+    WebhookPayload:
+      type: object
+      description: >-
+        Body of `POST /hooks/{token}`: the native payload or the Slack subset (see the
+        operation). Unknown keys are ignored, so unmodified Slack payloads are accepted.
+      properties:
+        text:
+          type: string
+        username:
+          type: string
+        icon_emoji:
+          type: string
+        attachments:
+          type: array
+          items:
+            type: object
+        blocks:
+          type: array
+          items:
+            type: object
+        alert:
+          type: [object, "null"]
+          description: Native alert; see the operation. null is the same as absent.
+          properties:
+            severity:
+              type: string
+              enum: [info, warning, critical]
+            title:
+              type: string
+            text:
+              type: string
+            fields:
+              type: array
+              items:
+                type: object
+            link:
+              type: string
+            dedupe_key:
+              type: string
+            renotify_after_s:
+              type: integer

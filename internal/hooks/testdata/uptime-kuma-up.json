@@ -1,0 +1,35 @@
+{
+  "text": "Uptime Kuma Alert",
+  "channel": "#monitoring",
+  "username": "Uptime Kuma",
+  "icon_emoji": ":kuma:",
+  "attachments": [
+    {
+      "color": "#2EB886",
+      "blocks": [
+        {
+          "type": "header",
+          "text": { "type": "plain_text", "text": "Uptime Kuma Alert" }
+        },
+        {
+          "type": "section",
+          "fields": [
+            { "type": "mrkdwn", "text": "*Message*\n[✅ Up] 200 - OK" },
+            { "type": "mrkdwn", "text": "*Time (UTC)*\n2026-10-11 18:09:05" }
+          ]
+        },
+        {
+          "type": "actions",
+          "elements": [
+            {
+              "type": "button",
+              "text": { "type": "plain_text", "text": "Visit Uptime Kuma" },
+              "value": "Uptime-Kuma",
+              "url": "https://kuma.home.arpa:3001/dashboard/12"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

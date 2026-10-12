@@ -1,0 +1,52 @@
+bubbles - how to open the server
+================================
+
+This is the bubbles chat server. Run it on one computer on your local network,
+then open the address it prints from any device on the same network.
+
+Run it
+------
+  Windows   Unzip, then double-click bubbles.exe (or run it from a terminal).
+  macOS     Unzip, then open a Terminal in that folder and run ./bubbles
+  Linux     Unzip, then run ./bubbles from a terminal.
+
+The first start prints a one-time setup token and the addresses to open
+(for example https://192.168.1.20:8443 and https://bubbles.local:8443).
+Keep that console window open while people use the chat.
+
+Unsigned binaries: the release is not code-signed. The operating system will
+warn the first time you run it. This is expected.
+
+Windows (SmartScreen)
+---------------------
+  1. Double-click bubbles.exe.
+  2. "Windows protected your PC" appears: click "More info".
+  3. Click "Run anyway".
+
+macOS (Gatekeeper)
+------------------
+  Option A: try to open bubbles once, then go to System Settings >
+            Privacy & Security and click "Open Anyway" (macOS 15+).
+            On older macOS you can right-click (or Control-click) bubbles
+            in Finder, choose Open, then click Open in the dialog.
+  Option B: in Terminal, remove the quarantine flag once, then run it:
+
+      xattr -dr com.apple.quarantine ./bubbles
+      chmod +x ./bubbles
+      ./bubbles
+
+Linux
+-----
+  Make the file executable once, then run it:
+
+      chmod +x ./bubbles
+      ./bubbles
+
+Next steps
+----------
+  1. Open the setup address in a browser on the server and enter the setup token.
+  2. Other devices: open the address on the server console, follow the steps
+     to trust the local certificate, then scan the QR code or sign in.
+
+Full documentation (quickstart per OS, certificate install, admin guide,
+security notes): see README.md and the docs/ folder of the project.

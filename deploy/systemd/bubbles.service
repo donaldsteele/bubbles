@@ -1,0 +1,21 @@
+[Unit]
+Description=bubbles private LAN messaging server
+Documentation=https://github.com/donaldsteele/bubbles
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bubbles
+Group=bubbles
+ExecStart=/usr/local/bin/bubbles serve --data-dir /var/lib/bubbles
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/bubbles
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,134 @@
+/* Shared look of the admin pages (loaded with the admin section). */
+.adm h2 {
+  font-size: 18px;
+  margin: var(--s5) 0 var(--s2);
+}
+.adm .lead {
+  color: var(--fg-muted);
+  margin: 0 0 var(--s3);
+}
+.adm table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--s2) 0 var(--s4);
+}
+.adm th,
+.adm td {
+  text-align: left;
+  padding: var(--s2);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.adm th {
+  color: var(--fg-muted);
+  font-weight: 600;
+  font-size: 13px;
+}
+.adm .table-wrap {
+  overflow-x: auto;
+}
+.adm .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  align-items: center;
+}
+.adm .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--s3);
+}
+.adm .form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  max-width: 560px;
+  margin: var(--s3) 0;
+}
+.adm .form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.adm .form label.inline,
+.adm label.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 32px;
+}
+.adm select,
+.adm textarea,
+.adm input:not([type='checkbox']):not([type='radio']) {
+  min-height: 40px;
+  padding: var(--s1) var(--s2);
+  color: var(--fg);
+  background: var(--bg-elev2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  font: inherit;
+}
+.adm fieldset {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--s2) var(--s3);
+  margin: 0;
+}
+.adm fieldset legend {
+  padding: 0 var(--s1);
+  font-weight: 600;
+}
+.adm .panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--s3);
+  background: var(--bg-elev);
+}
+.adm .chip {
+  display: inline-block;
+  padding: 0 var(--s2);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.adm .chip.bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.adm .chip.ok {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.adm .mono {
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+.adm .hint {
+  color: var(--fg-muted);
+  font-size: 13px;
+  margin: 0;
+}
+.adm .field-error {
+  color: var(--bad);
+  font-size: 13px;
+  margin: 0;
+}
+.adm .callout {
+  border: 1px solid var(--warn);
+  background: var(--warnbg);
+  border-radius: var(--radius);
+  padding: var(--s3);
+  margin: var(--s3) 0;
+}
+.adm .btn.danger {
+  background: var(--bad);
+  color: var(--bg);
+  border-color: var(--bad);
+  font-weight: 700;
+}
+.adm .btn.small {
+  min-height: 36px;
+  padding: var(--s1) var(--s3);
+}

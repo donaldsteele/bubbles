@@ -1,0 +1,57 @@
+/* bubbles onboarding page. Served from /onboarding.css: the page carries no
+   inline styles or scripts, so a strict CSP applies. Palette matches netdiag. */
+:root {
+  color-scheme: dark light;
+  --bg: #1c1917; --bg-elev: #292524; --line: #44403c;
+  --fg: #f5f0e8; --fg-muted: #b8aea1; --accent: #fb923c; --accent-fg: #1c1917; --link: #fdba74;
+  --info: #a78bfa; --infobg: #261d3d; --focus: #fde68a;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #faf7f2; --bg-elev: #f3eee6; --line: #d6cfc4;
+    --fg: #292524; --fg-muted: #57534e; --accent: #c2410c; --accent-fg: #ffffff; --link: #9a3412;
+    --info: #6d28d9; --infobg: #ede9fe; --focus: #1d4ed8;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 46rem; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+h1 { font-size: 1.6rem; margin: 0 0 var(--s2); }
+h2 { font-size: 1.15rem; margin: 0 0 var(--s3); }
+p { margin: 0 0 var(--s3); }
+a { color: var(--link); }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+code {
+  font-family: ui-monospace, "JetBrains Mono", Consolas, monospace; font-size: .9em;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+  padding: 0 var(--s1); overflow-wrap: anywhere;
+}
+.lead { color: var(--fg-muted); }
+.card {
+  background: var(--bg-elev); border: 1px solid var(--line); border-radius: 12px;
+  padding: var(--s4) var(--s4) var(--s2); margin: 0 0 var(--s4);
+}
+.downloads { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.button {
+  display: inline-block; padding: var(--s2) var(--s4); border-radius: 8px;
+  background: var(--accent); color: var(--accent-fg); font-weight: 600; text-decoration: none;
+}
+.button.secondary { background: transparent; color: var(--link); border: 1px solid var(--line); }
+.fingerprint code { display: block; margin-top: var(--s1); padding: var(--s2); letter-spacing: .04em; }
+.label { color: var(--fg-muted); font-size: .9em; }
+.steps details { border-top: 1px solid var(--line); padding: var(--s2) 0; }
+.steps summary { cursor: pointer; font-weight: 600; }
+.steps ol { margin: var(--s2) 0; padding-left: var(--s5); }
+.steps li { margin-bottom: var(--s2); }
+.qr { margin: 0 0 var(--s3); text-align: center; }
+.qr img { width: 220px; height: 220px; max-width: 100%; background: #ffffff; padding: var(--s2); border-radius: 8px; }
+.qr figcaption { color: var(--fg-muted); font-size: .9em; }
+.urls { padding-left: var(--s5); }
+.urls li { overflow-wrap: anywhere; }
+.note { background: var(--infobg); border-color: var(--info); }
+.muted { color: var(--fg-muted); font-size: .9em; }

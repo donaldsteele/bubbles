@@ -1,0 +1,38 @@
+# Run bubbles with Docker Compose from the repository root:
+#   docker compose -f deploy/docker/docker-compose.yml up -d --build
+#
+# Host networking is the default because mDNS (<name>.local advertisement)
+# needs multicast on the LAN, which a bridge network does not forward.
+name: bubbles
+
+services:
+  bubbles:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      BUBBLES_DATA_DIR: /data
+      # BUBBLES_MDNS_NAME: bubbles   # advertised as bubbles.local
+      # The server sets a 200 MiB Go soft memory limit unless GOMEMLIMIT is
+      # set. Set GOMEMLIMIT (for example 512MiB) to override it.
+      # GOMEMLIMIT: 512MiB
+    volumes:
+      # Named volume holds the database, files and CA key. Use a bind mount
+      # (for example ./data:/data) if you want the files on the host.
+      - bubbles-data:/data
+
+    # Bridge alternative (no mDNS: devices use the IP address shown on the
+    # admin overview). Remove network_mode above and use this instead:
+    #
+    # network_mode: bridge
+    # environment:
+    #   BUBBLES_DATA_DIR: /data
+    #   BUBBLES_NO_MDNS: "true"
+    # ports:
+    #   - "8443:8443"   # HTTPS app and API
+    #   - "8080:8080"   # onboarding page (CA download, plain HTTP)
+
+volumes:
+  bubbles-data:

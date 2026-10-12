@@ -1,0 +1,30 @@
+{
+  "text": "Front door opened",
+  "username": "Home Assistant",
+  "icon_emoji": ":house:",
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Front door* opened at <https://ha.home.arpa:8123/lovelace/doors|the dashboard>\n_Nobody is home_ since ~17:30~ 18:00"
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        { "type": "mrkdwn", "text": "Sent by Home Assistant" },
+        { "type": "image", "image_url": "https://ha.home.arpa:8123/local/ha.png", "alt_text": "HA logo" }
+      ]
+    }
+  ],
+  "attachments": [
+    {
+      "title": "Camera snapshot",
+      "title_link": "https://ha.home.arpa:8123/api/camera_proxy/camera.front_door",
+      "text": "Taken at 18:04",
+      "fallback": "Camera snapshot",
+      "color": "good"
+    }
+  ]
+}

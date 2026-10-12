@@ -1,0 +1,71 @@
+/* Design tokens copied from netdiag (netDiscovery web/styles.css), same author.
+   Dark is the default; the settings state sets data-theme on <html>.
+Contrast, WCAG 2.x ratios (computed). Text pairs all >= 4.5:1; UI/icon pairs >= 3:1.
+   dark:  fg/bg 15.4  fg/bg-elev2 14.4  fg-muted/bg-elev 6.9  link/bg 10.4  ok/bg-elev 7.9  warn/bg-elev 9.9  bad/bg-elev 5.5  info/bg-elev 5.6
+          accent-fg/accent 7.7  accent/bg 7.7 (UI)  warn/warnbg 8.6  bad/badbg 5.6  ok/okbg 8.0  info/infobg 5.8  focus/bg 14.0  line-strong/bg 3.7 (UI)
+   light: fg/bg 14.2  fg/bg-elev2 12.0  fg-muted/bg-elev 6.6  link/bg-elev2 5.8  ok/bg-elev2 5.7  warn/bg-elev2 5.4  warn/warnbg 6.2  bad/bg-elev 5.6  info/bg-elev 6.2
+          accent-fg/accent 5.2  accent/bg 4.9 (UI)  bad/badbg 5.3  ok/okbg 6.5  info/infobg 6.0  focus/bg 6.3  line-strong/bg 3.6 (UI) */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #1c1917;
+  --bg-elev: #292524;
+  --bg-elev2: #231f1d;
+  --line: #44403c;
+  --line-strong: #78716c;
+  --fg: #f5f0e8;
+  --fg-muted: #b8aea1;
+  --accent: #fb923c;
+  --accent-fg: #1c1917;
+  --link: #fdba74;
+  --ok: #34d399;
+  --warn: #facc15;
+  --bad: #f87171;
+  --info: #a78bfa;
+  --focus: #fde68a;
+  --warnbg: #3a2f0d;
+  --badbg: #3b1a1a;
+  --okbg: #12291f;
+  --infobg: #261d3d;
+  --shadow: rgba(0, 0, 0, 0.5);
+  --shadow-soft: rgba(0, 0, 0, 0.35);
+  --backdrop: rgba(0, 0, 0, 0.5);
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #faf7f2;
+  --bg-elev: #f3eee6;
+  --bg-elev2: #ebe4d9;
+  --line: #d6cfc4;
+  --line-strong: #8a8178;
+  --fg: #292524;
+  --fg-muted: #57534e;
+  --accent: #c2410c;
+  --accent-fg: #ffffff;
+  --link: #9a3412;
+  --ok: #166534;
+  --warn: #854d0e;
+  --bad: #b91c1c;
+  --info: #6d28d9;
+  --focus: #1d4ed8;
+  --warnbg: #fef3c7;
+  --badbg: #fee2e2;
+  --okbg: #dcfce7;
+  --infobg: #ede9fe;
+  --shadow: rgba(41, 37, 36, 0.18);
+  --shadow-soft: rgba(41, 37, 36, 0.12);
+  --backdrop: rgba(41, 37, 36, 0.35);
+}
+:root {
+  --muted: var(--fg-muted);
+  --panel: var(--bg-elev);
+  --radius: 4px;
+  --font-ui: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+}
