@@ -195,6 +195,7 @@ func TestAppsBearerIsRefusedOnCookieOnlyRoutes(t *testing.T) {
 		{http.MethodPost, "/push/subscriptions", nil},
 		{http.MethodPost, "/pairing/requests", nil},
 		{http.MethodGet, "/pairing/requests/x", nil},
+		{http.MethodDelete, "/pairing/requests/x", nil},
 		{http.MethodGet, "/admin/apps", nil},
 		{http.MethodPost, "/admin/apps", nil},
 		{http.MethodPost, "/channels", nil},
@@ -427,7 +428,12 @@ func TestContractBearerMatrix(t *testing.T) {
 			if op.RequestBody != nil {
 				body = `{}`
 			}
-			rec := e.client("192.168.1.62").do(method, "/api/v1"+target, body, asBearer(b.token), func(r *http.Request) {
+			token := b.token
+			if method == http.MethodDelete && path == "/apps/self/token" {
+				// Revoking itself would leave the shared token dead for the rest of the walk.
+				token = e.newBot(admin, "self-revoker", []string{"messages:read"}, nil).token
+			}
+			rec := e.client("192.168.1.62").do(method, "/api/v1"+target, body, asBearer(token), func(r *http.Request) {
 				r.Header.Set(protocol.PairingHeader, "x")
 			})
 			refused := rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), "not available to app tokens")
@@ -455,6 +461,7 @@ func TestContractAppRoutesAreDocumented(t *testing.T) {
 		cookie       bool
 	}{
 		{"GET", "/apps/self", true, false},
+		{"DELETE", "/apps/self/token", true, false},
 		{"POST", "/alerts", true, false},
 		{"GET", "/alerts", true, true},
 		{"POST", "/alerts/resolve", true, false},
@@ -462,6 +469,7 @@ func TestContractAppRoutesAreDocumented(t *testing.T) {
 		{"POST", "/alerts/{id}/resolve", true, true},
 		{"POST", "/pairing/requests", false, false},
 		{"GET", "/pairing/requests/{id}", false, false},
+		{"DELETE", "/pairing/requests/{id}", false, false},
 		{"GET", "/admin/apps", false, true},
 		{"POST", "/admin/apps", false, true},
 		{"PATCH", "/admin/apps/{id}", false, true},

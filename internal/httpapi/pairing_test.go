@@ -176,8 +176,8 @@ func TestPairingHTTPApprovalValidation(t *testing.T) {
 	wantStatus(t, alice.do(http.MethodPost, "/api/v1/admin/pairing-requests/"+p.ID+"/approve", nil), http.StatusForbidden, CodeForbidden)
 	wantStatus(t, admin.do(http.MethodPost, "/api/v1/admin/pairing-requests/"+p.ID+"/approve", protocol.ApprovePairingRequest{Scopes: []string{"root"}}), http.StatusBadRequest, CodeBadRequest)
 	wantStatus(t, admin.do(http.MethodPost, "/api/v1/admin/pairing-requests/"+p.ID+"/approve", protocol.ApprovePairingRequest{ChannelIDs: []string{"nope"}}), http.StatusBadRequest, CodeBadRequest)
-	// A channel that already has the name of the alerts channel fails the whole approval.
-	admin.createChannel(t, "netdiag-alerts", "public")
+	// A private channel that already has the name of the alerts channel fails the whole approval.
+	admin.createChannel(t, "netdiag-alerts", "private")
 	wantStatus(t, admin.do(http.MethodPost, "/api/v1/admin/pairing-requests/"+p.ID+"/approve", protocol.ApprovePairingRequest{CreateChannel: true}), http.StatusConflict, CodeConflict)
 	if n := e.count(`SELECT COUNT(*) FROM apps`); n != 0 {
 		t.Errorf("failed approvals left %d apps", n)

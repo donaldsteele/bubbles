@@ -38,6 +38,7 @@ const (
 	ActionTokenRevoke    = "token.revoke"
 	ActionPairingApprove = "pairing.approve"
 	ActionPairingDeny    = "pairing.deny"
+	ActionPairingCancel  = "pairing.cancel"
 )
 
 // Limits of app fields.
@@ -496,3 +497,11 @@ func decodeStrings(raw string) ([]string, error) {
 // SetRealtime installs the realtime hub after construction (the composition
 // root and tests build the services first). Call it before serving requests.
 func (s *Service) SetRealtime(rt Realtime) { s.rt = rt }
+
+// boolInt binds b to an INTEGER 0/1 column.
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

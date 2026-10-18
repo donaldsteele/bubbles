@@ -378,9 +378,9 @@ func TestPairingPollIsRateLimitedPerIP(t *testing.T) {
 
 func TestPairingApprovalIsAtomic(t *testing.T) {
 	e := newEnv(t)
-	e.channel("taken-alerts", protocol.ChannelPublic)
+	e.channel("taken-alerts", protocol.ChannelPrivate)
 	p := e.pair("192.168.1.9", "taken", "alerts:write")
-	// "taken-alerts" exists, so creating it fails the whole approval.
+	// A private "taken-alerts" exists, so the alerts channel fails the whole approval.
 	_, err := e.svc.ApprovePairing(e.ctx, e.admin, e.aud, p.ID, protocol.ApprovePairingRequest{CreateChannel: true})
 	if !errors.Is(err, chat.ErrConflict) {
 		t.Fatalf("approval = %v, want conflict", err)

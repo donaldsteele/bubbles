@@ -2043,6 +2043,32 @@ paths:
         default:
           $ref: "#/components/responses/Internal"
 
+  /apps/self/token:
+    delete:
+      tags: [apps]
+      operationId: revokeAppSelfToken
+      summary: Revoke the calling app token
+      description: >-
+        Only for an app token (`bearerAuth`), with any scope; a browser session gets `403`.
+        The token revokes itself, for an app's "Disconnect": its live connections are closed
+        and its next request is `401`. The app, its bot and its other tokens are not touched.
+        Audited with the app as the actor.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The calling token is revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+
   /apps/self/commands:
     put:
       tags: [apps]
@@ -2544,7 +2570,9 @@ paths:
         admin UI and approves it; the app polls `GET /pairing/requests/{id}` with
         `poll_secret` and receives its token. The poll secret is shown only here. Limited to
         5 requests per minute per source address and 20 pending requests (`429`); a request
-        expires after 10 minutes.
+        expires after 10 minutes. An app that was paired before sends `replaces_app_id` (its
+        app id, from `GET /apps/self`) so the admin can reconnect that app
+        instead of creating a second one.
       security: []
       requestBody:
         required: true
@@ -2584,9 +2612,11 @@ paths:
         secret is `404` whatever the state. While the admin has not decided the state is
         `pending`. After approval the first poll answers `claimed` together with the token
         and the channels the app's bot is in, and every later poll answers `claimed` without
-        them, so the token is returned exactly once. Other states: `denied`, `expired` (10
-        minutes after the request, or 5 minutes after an approval that was never claimed;
-        that app is then disabled). Limited per source address.
+        them, so the token is returned exactly once. When the approval reconnected an existing
+        app (`replace_app`), that claim also revokes every other token of the app. Other
+        states: `denied`, `expired` (10 minutes after the request, or 5 minutes after an
+        approval that was never claimed; an app created for that approval is then disabled)
+        and `cancelled` (the app withdrew the request). Limited per source address.
       security: []
       parameters:
         - $ref: "#/components/parameters/PairingId"
@@ -2602,6 +2632,38 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        default:
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [pairing]
+      operationId: cancelPairingRequest
+      summary: Cancel a pairing request
+      description: >-
+        The app withdraws its own request. No authentication besides the poll secret in
+        `X-Poll-Secret`; a missing or wrong secret, or an unknown id, is `404` as for the
+        poll, whose per-address limit this shares. A `pending` request becomes `cancelled`.
+        So does an `approved` request whose token was not claimed yet: an app created for that
+        approval is disabled (as when it expires), while an app it reconnected is left as it
+        is. Cancelling a `cancelled` request again is `204`; a `claimed`, `denied` or
+        `expired` request is `409`. Polls then answer `cancelled`, and the admin can no
+        longer approve or deny it. Audited.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/PairingId"
+        - $ref: "#/components/parameters/PollSecret"
+      responses:
+        "204":
+          description: The request is cancelled.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -2831,9 +2893,17 @@ paths:
       description: >-
         Admin only, browser session only. In one transaction: creates the app and its bot,
         records the approved `scopes` (default: the requested scopes), adds the bot to
-        `channel_ids` and, with `create_channel`, to a new public `<app>-alerts` channel.
-        No token is created here: the app's first poll mints it. Only a pending request
-        can be approved (`409` otherwise). Audited.
+        `channel_ids` and, with `create_channel`, to the public `<username>-alerts` channel:
+        it is created, or reused when a public channel with that name exists and is not
+        archived (a private or archived one is `409`). No token is created here: the app's
+        first poll mints it. Only a pending request can be approved (`409` otherwise).
+        With `replace_app` the request must name an existing app (`replaces` in the
+        listing) whose bot account is not deactivated, else `409`: no app or bot is
+        created; that app keeps its id, bot, username and channels, takes the request's
+        description, and its bot is added to the chosen channels. An enabled app's other
+        tokens are revoked when the app claims the new one, not before. A disabled app is
+        enabled again, and its tokens are revoked by the approval itself, so enabling it
+        revives none of them. Audited.
       security:
         - cookieAuth: []
       parameters:
@@ -5595,6 +5665,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Scope"
+        replaces_app_id:
+          type: string
+          maxLength: 64
+          pattern: "^[0-9A-Za-z_-]*$"
+          description: >-
+            The id of the app this client was paired as before (`app.id` of
+            `GET /apps/self`). The admin then sees that app and can reconnect it instead of
+            creating a new one. An id that names no app is accepted and ignored.
 
     PairingCreated:
       type: object
@@ -5630,7 +5708,7 @@ components:
       properties:
         state:
           type: string
-          enum: [pending, approved, denied, expired, claimed]
+          enum: [pending, approved, denied, expired, claimed, cancelled]
         token:
           type: string
         expires_at:
@@ -5645,7 +5723,7 @@ components:
     PairingChannel:
       type: object
       additionalProperties: false
-      description: A channel the bot of a newly paired app is a member of.
+      description: A channel the bot of a paired app is a member of.
       required: [id, name]
       properties:
         id:
@@ -5659,6 +5737,9 @@ components:
       description: >-
         An open pairing request as the admin sees it. `ca_fingerprint` is the SHA-256
         fingerprint of the server's CA, to compare with the one the app displays.
+        `replaces` is present when the request names an existing app (`replaces_app_id`)
+        whose bot account is not deactivated; such an app cannot be reconnected, so the
+        request is then shown as a new app.
       required: [id, app_name, description, requested_scopes, code, source_ip, ca_fingerprint, created_at, expires_at]
       properties:
         id:
@@ -5684,6 +5765,32 @@ components:
         expires_at:
           type: string
           format: date-time
+        replaces:
+          $ref: "#/components/schemas/PairingReplaces"
+
+    PairingReplaces:
+      type: object
+      additionalProperties: false
+      description: >-
+        The existing app a pairing request names. `disabled_at` is null while the app is
+        enabled. `channels` are the public and private channels, not archived, that its bot
+        is in, sorted by name then id. Approving with `replace_app` hands that bot and those
+        channels to the new token.
+      required: [app_id, name, username, disabled_at, channels]
+      properties:
+        app_id:
+          $ref: "#/components/schemas/Id"
+        name:
+          type: string
+        username:
+          type: string
+        disabled_at:
+          type: [string, "null"]
+          format: date-time
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/PairingChannel"
 
     PendingPairingList:
       type: object
@@ -5700,7 +5807,8 @@ components:
       additionalProperties: false
       description: >-
         Body of `POST /admin/pairing-requests/{id}/approve`. Without `scopes` the requested
-        scopes are granted.
+        scopes are granted. `replace_app` (default false) reconnects the existing app the
+        request names instead of creating a new one.
       properties:
         scopes:
           type: array
@@ -5712,13 +5820,15 @@ components:
             $ref: "#/components/schemas/Id"
         create_channel:
           type: boolean
+        replace_app:
+          type: boolean
 
     PairingApproval:
       type: object
       additionalProperties: false
       description: >-
-        The app created by an approval and the ids of the channels its bot was added to
-        (the created `<app>-alerts` channel first).
+        The app created (or, with `replace_app`, reconnected) by an approval and the ids of
+        the channels its bot was added to (the `<username>-alerts` channel first).
       required: [app, channel_ids]
       properties:
         app:

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -155,8 +156,8 @@ func TestNewerSchemaRefused(t *testing.T) {
 		t.Errorf("err = %v, want ErrSchemaTooNew", err)
 	}
 	var tooNew *SchemaTooNewError
-	if !errors.As(err, &tooNew) || tooNew.DBVersion != 999 || tooNew.MaxVersion != 3 {
-		t.Errorf("err = %#v, want SchemaTooNewError{999, 2}", err)
+	if !errors.As(err, &tooNew) || tooNew.DBVersion != 999 || tooNew.MaxVersion != 4 {
+		t.Errorf("err = %#v, want SchemaTooNewError{999, 4}", err)
 	}
 }
 
@@ -299,5 +300,122 @@ func TestUpgradeKeepsSignupClosed(t *testing.T) {
 	// A server without users (new, or factory reset) keeps the default.
 	if v, ok := setting(open(filepath.Join(t.TempDir(), FileName), "")); ok {
 		t.Errorf("new server: open_registration stored as %q, want the default", v)
+	}
+}
+
+// migrationsUpTo returns the embedded migrations 0001..n.
+func migrationsUpTo(t *testing.T, n int) fstest.MapFS {
+	t.Helper()
+	migs, err := loadMigrations(embeddedMigrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := fstest.MapFS{}
+	for _, m := range migs[:n] {
+		out[m.name] = &fstest.MapFile{Data: []byte(m.sql)}
+	}
+	return out
+}
+
+func TestPairingRequestsRebuildMigration(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), FileName)
+	db, err := Open(ctx, path, Options{Migrations: migrationsUpTo(t, 3), Now: fixedClock(testEpoch)})
+	if err != nil {
+		t.Fatalf("Open v3: %v", err)
+	}
+	seedBasics(t, db)
+	fixture(t, db, `INSERT INTO pairing_requests (id, app_name, description, requested_scopes, code, poll_secret_hash, source_ip,
+			state, approved_app_id, created_at, expires_at) VALUES
+		('p1', 'netdiag', 'sends alerts', '["alerts:write"]', '123456', X'01', '192.168.1.9', 'pending', NULL, 10, 20),
+		('p2', 'monitor', '', '["mcp"]', '654321', X'02', '192.168.1.10', 'approved', 'a1', 11, 21),
+		('p3', 'old', '', '[]', '123456', X'03', '', 'claimed', 'a1', 12, 22)`)
+	db.Close()
+
+	db, err = Open(ctx, path, Options{Now: fixedClock(testEpoch)})
+	if err != nil {
+		t.Fatalf("Open latest: %v", err)
+	}
+	defer db.Close()
+
+	// Every row survived with its values, and the new columns have their defaults.
+	type row struct {
+		id, name, desc, scopes, code, ip, state string
+		hash                                    []byte
+		approved, replaces                      sql.NullString
+		replaced                                int
+		created, expires                        int64
+	}
+	rows, err := db.Read().Query(`SELECT id, app_name, description, requested_scopes, code, poll_secret_hash, source_ip, state,
+		approved_app_id, replaces_app_id, replaced, created_at, expires_at FROM pairing_requests ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.name, &r.desc, &r.scopes, &r.code, &r.hash, &r.ip, &r.state, &r.approved, &r.replaces,
+			&r.replaced, &r.created, &r.expires); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, r)
+	}
+	rows.Close()
+	if len(got) != 3 {
+		t.Fatalf("rows after migration = %d, want 3", len(got))
+	}
+	if r := got[0]; r.id != "p1" || r.name != "netdiag" || r.desc != "sends alerts" || r.scopes != `["alerts:write"]` || r.code != "123456" ||
+		string(r.hash) != "\x01" || r.ip != "192.168.1.9" || r.state != "pending" || r.approved.Valid || r.created != 10 || r.expires != 20 {
+		t.Errorf("p1 = %+v", r)
+	}
+	if r := got[1]; r.state != "approved" || r.approved.String != "a1" || r.scopes != `["mcp"]` {
+		t.Errorf("p2 = %+v", r)
+	}
+	for _, r := range got {
+		if r.replaces.Valid || r.replaced != 0 {
+			t.Errorf("%s: replaces_app_id = %v, replaced = %d; want NULL and 0", r.id, r.replaces, r.replaced)
+		}
+	}
+
+	// The new state and columns are accepted; the CHECKs still hold.
+	fixture(t, db, `UPDATE pairing_requests SET state = 'cancelled' WHERE id = 'p1'`)
+	fixture(t, db, `UPDATE pairing_requests SET replaces_app_id = 'a1', replaced = 1 WHERE id = 'p2'`)
+	for name, q := range map[string]string{
+		"unknown state":       `UPDATE pairing_requests SET state = 'bogus' WHERE id = 'p2'`,
+		"replaced not a bool": `UPDATE pairing_requests SET replaced = 2 WHERE id = 'p2'`,
+		"unknown app":         `UPDATE pairing_requests SET replaces_app_id = 'nope' WHERE id = 'p2'`,
+	} {
+		if err := execErr(db, q); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+
+	// The partial unique index on the pending code is back.
+	var idx string
+	if err := db.Read().QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'pairing_requests_pending_code'`).Scan(&idx); err != nil {
+		t.Fatalf("pairing_requests_pending_code: %v", err)
+	}
+	if !strings.Contains(idx, "WHERE state = 'pending'") {
+		t.Errorf("index = %s", idx)
+	}
+	fixture(t, db, `INSERT INTO pairing_requests (id, app_name, code, poll_secret_hash, created_at, expires_at) VALUES ('p4', 'x', '777777', X'04', 1, 2)`)
+	if err := execErr(db, `INSERT INTO pairing_requests (id, app_name, code, poll_secret_hash, created_at, expires_at) VALUES ('p5', 'y', '777777', X'05', 1, 2)`); err == nil {
+		t.Error("two pending requests share a code")
+	}
+
+	// The foreign keys hold, and deleting the app clears both references.
+	var violations int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM pragma_foreign_key_check('pairing_requests')`).Scan(&violations); err != nil || violations != 0 {
+		t.Errorf("foreign key violations = %d, %v", violations, err)
+	}
+	fixture(t, db, `DELETE FROM apps WHERE id = 'a1'`)
+	var approved, replaces sql.NullString
+	if err := db.Read().QueryRow(`SELECT approved_app_id, replaces_app_id FROM pairing_requests WHERE id = 'p2'`).Scan(&approved, &replaces); err != nil ||
+		approved.Valid || replaces.Valid {
+		t.Errorf("after deleting the app: approved %v, replaces %v, %v", approved, replaces, err)
+	}
+	var leftover int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'pairing_requests_new'`).Scan(&leftover); err != nil || leftover != 0 {
+		t.Errorf("pairing_requests_new left behind: %d, %v", leftover, err)
 	}
 }

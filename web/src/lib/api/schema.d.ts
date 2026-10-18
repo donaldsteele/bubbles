@@ -969,6 +969,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/apps/self/token': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Revoke the calling app token
+     * @description Only for an app token (`bearerAuth`), with any scope; a browser session gets `403`. The token revokes itself, for an app's "Disconnect": its live connections are closed and its next request is `401`. The app, its bot and its other tokens are not touched. Audited with the app as the actor.
+     */
+    delete: operations['revokeAppSelfToken'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/apps/self/commands': {
     parameters: {
       query?: never;
@@ -1186,7 +1206,7 @@ export interface paths {
     put?: never;
     /**
      * Ask the admin to pair an app
-     * @description No authentication (the network gate applies). The app shows `code` to the admin, who sees the request with the code, the source address and the CA fingerprint in the admin UI and approves it; the app polls `GET /pairing/requests/{id}` with `poll_secret` and receives its token. The poll secret is shown only here. Limited to 5 requests per minute per source address and 20 pending requests (`429`); a request expires after 10 minutes.
+     * @description No authentication (the network gate applies). The app shows `code` to the admin, who sees the request with the code, the source address and the CA fingerprint in the admin UI and approves it; the app polls `GET /pairing/requests/{id}` with `poll_secret` and receives its token. The poll secret is shown only here. Limited to 5 requests per minute per source address and 20 pending requests (`429`); a request expires after 10 minutes. An app that was paired before sends `replaces_app_id` (its app id, from `GET /apps/self`) so the admin can reconnect that app instead of creating a second one.
      */
     post: operations['createPairingRequest'];
     delete?: never;
@@ -1204,12 +1224,16 @@ export interface paths {
     };
     /**
      * Poll a pairing request
-     * @description No authentication besides the poll secret in `X-Poll-Secret`; a missing or wrong secret is `404` whatever the state. While the admin has not decided the state is `pending`. After approval the first poll answers `claimed` together with the token and the channels the app's bot is in, and every later poll answers `claimed` without them, so the token is returned exactly once. Other states: `denied`, `expired` (10 minutes after the request, or 5 minutes after an approval that was never claimed; that app is then disabled). Limited per source address.
+     * @description No authentication besides the poll secret in `X-Poll-Secret`; a missing or wrong secret is `404` whatever the state. While the admin has not decided the state is `pending`. After approval the first poll answers `claimed` together with the token and the channels the app's bot is in, and every later poll answers `claimed` without them, so the token is returned exactly once. When the approval reconnected an existing app (`replace_app`), that claim also revokes every other token of the app. Other states: `denied`, `expired` (10 minutes after the request, or 5 minutes after an approval that was never claimed; an app created for that approval is then disabled) and `cancelled` (the app withdrew the request). Limited per source address.
      */
     get: operations['getPairingRequest'];
     put?: never;
     post?: never;
-    delete?: never;
+    /**
+     * Cancel a pairing request
+     * @description The app withdraws its own request. No authentication besides the poll secret in `X-Poll-Secret`; a missing or wrong secret, or an unknown id, is `404` as for the poll, whose per-address limit this shares. A `pending` request becomes `cancelled`. So does an `approved` request whose token was not claimed yet: an app created for that approval is disabled (as when it expires), while an app it reconnected is left as it is. Cancelling a `cancelled` request again is `204`; a `claimed`, `denied` or `expired` request is `409`. Polls then answer `cancelled`, and the admin can no longer approve or deny it. Audited.
+     */
+    delete: operations['cancelPairingRequest'];
     options?: never;
     head?: never;
     patch?: never;
@@ -1330,7 +1354,7 @@ export interface paths {
     put?: never;
     /**
      * Approve a pairing request
-     * @description Admin only, browser session only. In one transaction: creates the app and its bot, records the approved `scopes` (default: the requested scopes), adds the bot to `channel_ids` and, with `create_channel`, to a new public `<app>-alerts` channel. No token is created here: the app's first poll mints it. Only a pending request can be approved (`409` otherwise). Audited.
+     * @description Admin only, browser session only. In one transaction: creates the app and its bot, records the approved `scopes` (default: the requested scopes), adds the bot to `channel_ids` and, with `create_channel`, to the public `<username>-alerts` channel: it is created, or reused when a public channel with that name exists and is not archived (a private or archived one is `409`). No token is created here: the app's first poll mints it. Only a pending request can be approved (`409` otherwise). With `replace_app` the request must name an existing app (`replaces` in the listing) whose bot account is not deactivated, else `409`: no app or bot is created; that app keeps its id, bot, username and channels, takes the request's description, and its bot is added to the chosen channels. An enabled app's other tokens are revoked when the app claims the new one, not before. A disabled app is enabled again, and its tokens are revoked by the approval itself, so enabling it revives none of them. Audited.
      */
     post: operations['approvePairingRequest'];
     delete?: never;
@@ -2467,6 +2491,8 @@ export interface components {
       app_name: string;
       description?: string;
       requested_scopes?: components['schemas']['Scope'][];
+      /** @description The id of the app this client was paired as before (`app.id` of `GET /apps/self`). The admin then sees that app and can reconnect it instead of creating a new one. An id that names no app is accepted and ignored. */
+      replaces_app_id?: string;
     };
     /** @description An open pairing request. Show `code` to the admin; poll with `poll_secret` (shown only here). */
     PairingCreated: {
@@ -2479,18 +2505,18 @@ export interface components {
     /** @description State of a pairing request. `token` is present in exactly one answer: the first poll after the approval, which also moves the state to `claimed`. `channels` is present in that answer only, and only when the app's bot is in at least one channel: the public and private channels, not archived, that the bot is a member of at the claim, sorted by name then id. An app that posts alerts should check that it has at least one; without `channels` its bot is in no channel yet and an admin must add it to one. */
     PairingStatus: {
       /** @enum {string} */
-      state: 'pending' | 'approved' | 'denied' | 'expired' | 'claimed';
+      state: 'pending' | 'approved' | 'denied' | 'expired' | 'claimed' | 'cancelled';
       token?: string;
       /** Format: date-time */
       expires_at: string;
       channels?: components['schemas']['PairingChannel'][];
     };
-    /** @description A channel the bot of a newly paired app is a member of. */
+    /** @description A channel the bot of a paired app is a member of. */
     PairingChannel: {
       id: components['schemas']['Id'];
       name: string;
     };
-    /** @description An open pairing request as the admin sees it. `ca_fingerprint` is the SHA-256 fingerprint of the server's CA, to compare with the one the app displays. */
+    /** @description An open pairing request as the admin sees it. `ca_fingerprint` is the SHA-256 fingerprint of the server's CA, to compare with the one the app displays. `replaces` is present when the request names an existing app (`replaces_app_id`) whose bot account is not deactivated; such an app cannot be reconnected, so the request is then shown as a new app. */
     PendingPairing: {
       id: components['schemas']['Id'];
       app_name: string;
@@ -2503,17 +2529,28 @@ export interface components {
       created_at: string;
       /** Format: date-time */
       expires_at: string;
+      replaces?: components['schemas']['PairingReplaces'];
+    };
+    /** @description The existing app a pairing request names. `disabled_at` is null while the app is enabled. `channels` are the public and private channels, not archived, that its bot is in, sorted by name then id. Approving with `replace_app` hands that bot and those channels to the new token. */
+    PairingReplaces: {
+      app_id: components['schemas']['Id'];
+      name: string;
+      username: string;
+      /** Format: date-time */
+      disabled_at: string | null;
+      channels: components['schemas']['PairingChannel'][];
     };
     PendingPairingList: {
       items: components['schemas']['PendingPairing'][];
     };
-    /** @description Body of `POST /admin/pairing-requests/{id}/approve`. Without `scopes` the requested scopes are granted. */
+    /** @description Body of `POST /admin/pairing-requests/{id}/approve`. Without `scopes` the requested scopes are granted. `replace_app` (default false) reconnects the existing app the request names instead of creating a new one. */
     ApprovePairingRequest: {
       scopes?: components['schemas']['Scope'][];
       channel_ids?: components['schemas']['Id'][];
       create_channel?: boolean;
+      replace_app?: boolean;
     };
-    /** @description The app created by an approval and the ids of the channels its bot was added to (the created `<app>-alerts` channel first). */
+    /** @description The app created (or, with `replace_app`, reconnected) by an approval and the ids of the channels its bot was added to (the `<username>-alerts` channel first). */
     PairingApproval: {
       app: components['schemas']['App'];
       channel_ids: components['schemas']['Id'][];
@@ -4616,6 +4653,29 @@ export interface operations {
       default: components['responses']['Internal'];
     };
   };
+  revokeAppSelfToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The calling token is revoked. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Unauthorized'];
+      403: components['responses']['Forbidden'];
+      429: components['responses']['RateLimited'];
+      503: components['responses']['Unavailable'];
+      default: components['responses']['Internal'];
+    };
+  };
   setAppCommands: {
     parameters: {
       query?: never;
@@ -5037,6 +5097,36 @@ export interface operations {
       };
       403: components['responses']['Forbidden'];
       404: components['responses']['NotFound'];
+      429: components['responses']['RateLimited'];
+      503: components['responses']['Unavailable'];
+      default: components['responses']['Internal'];
+    };
+  };
+  cancelPairingRequest: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description The poll secret returned when the request was created. */
+        'X-Poll-Secret': components['parameters']['PollSecret'];
+      };
+      path: {
+        /** @description Pairing request id. */
+        id: components['parameters']['PairingId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The request is cancelled. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      403: components['responses']['Forbidden'];
+      404: components['responses']['NotFound'];
+      409: components['responses']['Conflict'];
       429: components['responses']['RateLimited'];
       503: components['responses']['Unavailable'];
       default: components['responses']['Internal'];
