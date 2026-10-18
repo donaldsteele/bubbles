@@ -167,11 +167,11 @@
     <div class="wrap">
       <p class="eyebrow">Alerts</p>
       <h2>When the network breaks, everyone hears about it.</h2>
-      <p class="sub">bubbles is the companion to <a href="https://donaldsteele.github.io/netdiag/">netdiag</a>. When netdiag sees a printer drop off, an IP conflict or a new device, it posts an <b>alert</b>, and the whole LAN sees it in one channel. Any other tool can do the same.</p>
+      <p class="sub">bubbles is the companion to <a href="https://donaldsteele.github.io/netdiag/">netdiag</a>. When netdiag sees a printer drop off, an IP conflict or a failed health check, it posts an <b>alert</b>, and everyone on the local network sees it in one channel. Any other tool can do the same.</p>
 
       <ol class="timeline" aria-label="An example alert, from detection to all-clear">
         <li class="tick warmup"><span class="t">detect</span><b>netdiag notices</b><span>The Brother printer at 192.168.1.50 stops answering.</span></li>
-        <li class="tick hot"><span class="t">post</span><b>Critical alert</b><span>It lands in #netdiag-alerts, with a push notification for anyone who opted in.</span></li>
+        <li class="tick hot"><span class="t">post</span><b>Warning alert</b><span>It lands in #netdiag-alerts, with a push notification for anyone who opted in.</span></li>
         <li class="tick"><span class="t">acknowledge</span><b>Someone is on it</b><span>One click shows who took it, so nobody else walks over to the printer.</span></li>
         <li class="tick ok"><span class="t">resolve</span><b>All clear</b><span>netdiag sends the all-clear and the same alert updates in place.</span></li>
       </ol>
