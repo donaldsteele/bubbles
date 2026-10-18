@@ -4,6 +4,7 @@
   import ScopePicker from '../../components/admin/ScopePicker.svelte';
   import { api, call, type Schemas } from '../../lib/api/client';
   import { formatDateTime, groupFingerprint } from '../../lib/admin/format';
+  import { alertsBotWithoutChannel, createChannelByDefault } from '../../lib/admin/pairing';
   import type { Scope } from '../../lib/admin/scopes';
   import { validateScopes } from '../../lib/admin/validate';
   import { failureFrom } from '../../lib/forms';
@@ -24,6 +25,7 @@
   let scopeError = $state('');
   let busy = $state(false);
   let done = $state('');
+  let noChannel = $derived(alertsBotWithoutChannel(scopes, picked, channels, createChannel));
 
   async function load() {
     try {
@@ -50,7 +52,7 @@
     approving = p;
     scopes = [...p.requested_scopes];
     picked = [];
-    createChannel = false;
+    createChannel = createChannelByDefault(p.requested_scopes);
     scopeError = '';
     done = '';
   }
@@ -150,9 +152,16 @@
             <button class="btn" type="button" onclick={() => (approving = null)}
               >{t.common.cancel}</button
             >
-            <button class="btn primary" type="submit" disabled={busy}
+            <button
+              class="btn primary"
+              type="submit"
+              disabled={busy}
+              aria-describedby={noChannel ? `pair-${p.id}-nochan` : undefined}
               >{busy ? t.common.submitting : t.admin.approve}</button
             >
+            {#if noChannel}
+              <p id={`pair-${p.id}-nochan`} class="warn" role="note">{t.admin.pairingNoChannel}</p>
+            {/if}
           </div>
         </form>
       {/if}
@@ -180,6 +189,11 @@
   }
   dd {
     margin: 0;
+  }
+  .warn {
+    margin: 0;
+    color: var(--warn);
+    font-size: 13px;
   }
   .code {
     font-family: var(--font-mono);

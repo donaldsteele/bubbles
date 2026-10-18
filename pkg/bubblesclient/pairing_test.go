@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -42,8 +43,9 @@ func pairingServer(t *testing.T, pki *testPKI, states []protocol.PairingStatus) 
 
 func TestPairingApproved(t *testing.T) {
 	pki := newPKI(t)
+	chans := []protocol.PairingChannel{{ID: "01JCHANALERTS0000000000000", Name: "netdiag-alerts"}, {ID: "01JCHANOPS0000000000000000", Name: "ops"}}
 	srv := pairingServer(t, pki, []protocol.PairingStatus{
-		{State: protocol.PairingPending}, {State: protocol.PairingClaimed, Token: "bub_new"},
+		{State: protocol.PairingPending}, {State: protocol.PairingClaimed, Token: "bub_new", Channels: chans},
 	})
 	p, err := RequestPairing(context.Background(), srv.URL, pki.caFP, protocol.PairingRequest{AppName: "netdiag"})
 	if err != nil {
@@ -53,9 +55,37 @@ func TestPairingApproved(t *testing.T) {
 	if p.Code() != "123456" {
 		t.Fatalf("code %q", p.Code())
 	}
+	if got := p.Channels(); got != nil {
+		t.Fatalf("channels before Wait = %+v", got)
+	}
 	cfg, err := p.Wait(context.Background())
 	if err != nil || cfg.Token != "bub_new" || cfg.CAFingerprint != pki.caFP || cfg.BaseURL != srv.URL {
 		t.Fatalf("cfg=%+v err=%v", cfg, err)
+	}
+	got := p.Channels()
+	if !slices.Equal(got, chans) {
+		t.Fatalf("channels = %+v, want %+v", got, chans)
+	}
+	// The result is a copy: changing it does not change what Channels reports.
+	got[0].Name = "changed"
+	if p.Channels()[0].Name != "netdiag-alerts" {
+		t.Error("Channels returned the internal slice")
+	}
+}
+
+func TestPairingApprovedWithoutChannels(t *testing.T) {
+	pki := newPKI(t)
+	srv := pairingServer(t, pki, []protocol.PairingStatus{{State: protocol.PairingClaimed, Token: "bub_new"}})
+	p, err := RequestPairing(context.Background(), srv.URL, pki.caFP, protocol.PairingRequest{AppName: "netdiag"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.poll = time.Millisecond
+	if cfg, err := p.Wait(context.Background()); err != nil || cfg.Token != "bub_new" {
+		t.Fatalf("cfg=%+v err=%v", cfg, err)
+	}
+	if got := p.Channels(); got != nil {
+		t.Errorf("channels of a bot in no channel = %+v", got)
 	}
 }
 

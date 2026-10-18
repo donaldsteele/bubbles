@@ -30,11 +30,21 @@ type PairingCreated struct {
 
 // PairingStatus is the answer of GET /pairing/requests/{id}. Token is set
 // exactly once, on the first poll after the admin approved the request; the
-// state is then claimed.
+// state is then claimed. Channels is set in that same answer only: the
+// public and private channels, not archived, that the app's bot is a member
+// of at the claim, sorted by name then id. It is left out when the bot is in
+// no channel, and in every other answer.
 type PairingStatus struct {
-	State     string `json:"state"`
-	Token     string `json:"token,omitempty"`
-	ExpiresAt string `json:"expires_at"`
+	State     string           `json:"state"`
+	Token     string           `json:"token,omitempty"`
+	ExpiresAt string           `json:"expires_at"`
+	Channels  []PairingChannel `json:"channels,omitempty"`
+}
+
+// PairingChannel is a channel the bot of a newly paired app is a member of.
+type PairingChannel struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // PendingPairing is a pairing request as the admin sees it: the code to

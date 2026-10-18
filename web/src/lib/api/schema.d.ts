@@ -1204,7 +1204,7 @@ export interface paths {
     };
     /**
      * Poll a pairing request
-     * @description No authentication besides the poll secret in `X-Poll-Secret`; a missing or wrong secret is `404` whatever the state. While the admin has not decided the state is `pending`. After approval the first poll answers `claimed` together with the token and every later poll answers `claimed` without it, so the token is returned exactly once. Other states: `denied`, `expired` (10 minutes after the request, or 5 minutes after an approval that was never claimed; that app is then disabled). Limited per source address.
+     * @description No authentication besides the poll secret in `X-Poll-Secret`; a missing or wrong secret is `404` whatever the state. While the admin has not decided the state is `pending`. After approval the first poll answers `claimed` together with the token and the channels the app's bot is in, and every later poll answers `claimed` without them, so the token is returned exactly once. Other states: `denied`, `expired` (10 minutes after the request, or 5 minutes after an approval that was never claimed; that app is then disabled). Limited per source address.
      */
     get: operations['getPairingRequest'];
     put?: never;
@@ -2476,13 +2476,19 @@ export interface components {
       /** Format: date-time */
       expires_at: string;
     };
-    /** @description State of a pairing request. `token` is present in exactly one answer: the first poll after the approval, which also moves the state to `claimed`. */
+    /** @description State of a pairing request. `token` is present in exactly one answer: the first poll after the approval, which also moves the state to `claimed`. `channels` is present in that answer only, and only when the app's bot is in at least one channel: the public and private channels, not archived, that the bot is a member of at the claim, sorted by name then id. An app that posts alerts should check that it has at least one; without `channels` its bot is in no channel yet and an admin must add it to one. */
     PairingStatus: {
       /** @enum {string} */
       state: 'pending' | 'approved' | 'denied' | 'expired' | 'claimed';
       token?: string;
       /** Format: date-time */
       expires_at: string;
+      channels?: components['schemas']['PairingChannel'][];
+    };
+    /** @description A channel the bot of a newly paired app is a member of. */
+    PairingChannel: {
+      id: components['schemas']['Id'];
+      name: string;
     };
     /** @description An open pairing request as the admin sees it. `ca_fingerprint` is the SHA-256 fingerprint of the server's CA, to compare with the one the app displays. */
     PendingPairing: {

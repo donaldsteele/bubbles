@@ -197,13 +197,21 @@ Pairing gets an app a token without anyone copying secrets around.
 3. **Request.** `RequestPairing(ctx, "https://host:28225", fp, protocol.PairingRequest{AppName: "netdiag", RequestedScopes: []string{"alerts:write"}})`
    pins the CA from here on. Show `p.Code()` (6 digits) to the user.
 4. **Approve.** An admin sees the pending request with the code, the requester's IP and the
-   CA fingerprint, picks scopes and channels (optionally creating `#<app>-alerts`) and
-   approves.
+   CA fingerprint, picks scopes and channels (optionally creating `#<app>-alerts`, which
+   starts ticked when the app asks for `alerts:write`) and approves.
 5. **Wait.** `cfg, err := p.Wait(ctx)` polls with backoff and returns a `Config` with the
    token and pinned fingerprint. The token is handed out exactly once, on the first poll
    after approval, so store it right away (`cfg.ConnectionString()`). Denied or expired
    requests return `ErrPairingDenied` / `ErrPairingExpired`. Requests expire after 10
    minutes.
+6. **Check the channels.** The answer that carries the token also lists the channels the
+   app's bot is in at that moment, as `channels: [{"id": "…", "name": "netdiag-alerts"}]`:
+   public and private channels that are not archived, sorted by name. `p.Channels()`
+   returns them once `Wait` succeeded. An app that posts alerts should check that it has
+   at least one. Without `channels` (nil from `p.Channels()`) the bot is in no channel
+   yet, so tell the user that an admin must add it to one before alerts can be posted.
+   Later polls answer `claimed` with neither the token nor the channels; to see the
+   channels later, use `GET /api/v1/channels` with the `channels:read` scope.
 
 Alternatively an admin creates an app and token directly and hands the connection string
 (text or QR) to the app.

@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -96,10 +98,24 @@ func TestPairingHTTPFlow(t *testing.T) {
 	if st.State != "claimed" || !strings.HasPrefix(st.Token, "bub_") {
 		t.Fatalf("claim = %+v", st)
 	}
+	// The claim answer lists the bot's channels by id and name, sorted by name.
+	raw := decodeBody[map[string]json.RawMessage](t, rec)
+	if keys := slices.Sorted(maps.Keys(raw)); !slices.Equal(keys, []string{"channels", "expires_at", "state", "token"}) {
+		t.Errorf("claim keys = %v", keys)
+	}
+	var chans []map[string]string
+	if err := json.Unmarshal(raw["channels"], &chans); err != nil {
+		t.Fatalf("channels %s: %v", raw["channels"], err)
+	}
+	want := []map[string]string{{"id": approval.ChannelIDs[0], "name": "netdiag-alerts"}, {"id": ops.ID, "name": "ops"}}
+	if !slices.EqualFunc(chans, want, maps.Equal) {
+		t.Errorf("claim channels = %s, want %v", raw["channels"], want)
+	}
 	for range 3 {
 		rec = e.pollPairing("192.168.1.77", p, p.PollSecret)
 		wantStatus(t, rec, http.StatusOK, "")
-		if again := decodeBody[protocol.PairingStatus](t, rec); again.State != "claimed" || again.Token != "" || strings.Contains(rec.Body.String(), st.Token) {
+		if again := decodeBody[protocol.PairingStatus](t, rec); again.State != "claimed" || again.Token != "" || strings.Contains(rec.Body.String(), st.Token) ||
+			strings.Contains(rec.Body.String(), "channels") {
 			t.Fatalf("second claim = %s", rec.Body.String())
 		}
 	}
@@ -166,9 +182,15 @@ func TestPairingHTTPApprovalValidation(t *testing.T) {
 	if n := e.count(`SELECT COUNT(*) FROM apps`); n != 0 {
 		t.Errorf("failed approvals left %d apps", n)
 	}
-	// With no body the requested scopes are granted.
+	// With no body the requested scopes are granted, and the bot joins no
+	// channel: the claim answer then has no channels at all.
 	wantStatus(t, admin.do(http.MethodPost, "/api/v1/admin/pairing-requests/"+p.ID+"/approve", nil), http.StatusOK, "")
-	st := decodeBody[protocol.PairingStatus](t, e.pollPairing("192.168.1.77", p, p.PollSecret))
+	claim := e.pollPairing("192.168.1.77", p, p.PollSecret)
+	wantStatus(t, claim, http.StatusOK, "")
+	if raw := decodeBody[map[string]json.RawMessage](t, claim); raw["token"] == nil || raw["channels"] != nil {
+		t.Errorf("claim of a bot in no channel = %s", claim.Body.String())
+	}
+	st := decodeBody[protocol.PairingStatus](t, claim)
 	rec := bot{token: st.Token}.do(e, http.MethodGet, "/api/v1/apps/self", nil)
 	wantStatus(t, rec, http.StatusOK, "")
 	if self := decodeBody[protocol.AppSelf](t, rec); !slices.Equal(self.Token.Scopes, []string{"alerts:write"}) {
