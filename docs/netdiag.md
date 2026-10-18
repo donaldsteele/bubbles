@@ -137,14 +137,18 @@ netdiag keeps what it still has to send in its own outbox file, `chat-outbox.jso
 not use the SDK's `AlertQueue`.
 
 - A post waits at most 60 minutes, a resolve 7 days. The outbox holds at most 500 items.
-- A newer post for a key replaces one that still waits. A resolve for a post that was never
-  delivered drops both: nobody was told, so nobody is told it is fixed.
+- A newer post for a key replaces one that still waits.
+- A fix that comes while the post that would open the card still waits drops both: nobody
+  was told, so nobody is told it is fixed. When that post is already on its way, the resolve
+  waits for it and goes only if the post gets through.
+- A waiting post that only updates a card that is already open is dropped, and the card is
+  resolved.
 - After a restart a waiting post goes only if its problem is still open.
 - `occurred_at` stays the time the problem started, also when the post is delivered late
   from the outbox. bubbles records the earlier of `occurred_at` and the time the post
   arrives.
 - `429`, `5xx` and network failures are retried with backoff from about 2 to 60 seconds; a
-  longer `Retry-After` is honoured.
+  longer `Retry-After` on a `429` is honoured.
 - `401` or a changed server identity stops sending. netdiag's Settings then ask the person to
   reconnect.
 - `404` or `403` on a post: netdiag stops posting to that channel (its bot may not post
@@ -155,16 +159,17 @@ not use the SDK's `AlertQueue`.
 
 On `409` netdiag lists its channels to find out which of bubbles' two conflicts it is:
 
-- The alert channel is archived (it is no longer in the list): netdiag stops posting there and
-  keeps the items until someone picks another channel.
+- The alert channel is archived: bubbles still lists it, with `archived_at` set, but netdiag
+  counts only channels that are not archived. netdiag stops posting there and keeps the
+  items, resolves too, until someone picks another channel.
 - The key's card is still open in another channel: netdiag resolves that card by key with
   `Moved to #<channel>.` and posts the alert once more. If that resolve gets `409` too, or
   the second post gets `409` again, netdiag drops the post. Its Activity log says
   `Team chat could not move an alert out of the archived channel #<old channel>.` ("an
   archived channel" when it does not know the old name).
-- A resolve that gets `409` is dropped, with
-  `Team chat could not close an alert in archived channel #<old channel>.` in the Activity
-  log.
+- While the alert channel itself is not archived, a resolve that gets `409` is dropped, with
+  `Team chat could not close an alert in archived channel #<old channel>.` ("an archived
+  channel" when it does not know the old name) in the Activity log.
 
 **Send test alert** posts the test alert and resolves it directly, not through the outbox.
 When the post gets the `409` for a key open in another channel, netdiag resolves the old test

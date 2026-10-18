@@ -199,8 +199,8 @@ Pairing gets an app a token without anyone copying secrets around.
 2. **Fetch and confirm the CA.** `FetchCA(ctx, "http://host:28226")` returns the CA and its
    fingerprint over the unauthenticated onboarding port. Show
    `FormatFingerprint(fp)` to the user and have them compare it with the admin UI.
-3. **Request.** `RequestPairing(ctx, "https://host:28225", fp, protocol.PairingRequest{AppName: "netdiag", RequestedScopes: []string{"alerts:write"}})`
-   pins the CA from here on. Show `p.Code()` (6 digits) to the user.
+3. **Request.** `RequestPairing(ctx, "https://host:28225", fp, protocol.PairingRequest{AppName: "netdiag", RequestedScopes: []string{"alerts:write", "channels:read", "messages:write", "files:write"}})`
+   (what netdiag v0.6 asks for) pins the CA from here on. Show `p.Code()` (6 digits) to the user.
 4. **Approve.** An admin sees the pending request with the code, the requester's IP and the
    CA fingerprint, picks scopes and channels (optionally creating `#<app>-alerts`) and
    approves.
