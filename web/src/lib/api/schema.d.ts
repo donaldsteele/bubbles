@@ -1085,7 +1085,7 @@ export interface paths {
     };
     /**
      * List alerts
-     * @description Alert messages, newest first, from the channels the caller is a member of (an app token: and in its allowlist; it needs `alerts:write` or `messages:read`). Pass `next_cursor` as `cursor` for the next page.
+     * @description Alert messages, newest first, from the channels the caller is a member of (an app token: and in its allowlist; the page carries message bodies, so it needs `messages:read`, and `alerts:write` alone is `403`). Pass `next_cursor` as `cursor` for the next page.
      */
     get: operations['listAlerts'];
     put?: never;
