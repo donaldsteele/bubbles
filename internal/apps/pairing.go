@@ -172,7 +172,8 @@ func loadPairing(ctx context.Context, q queryer, id string) (pairingRow, error) 
 // request is ErrNotFound (a wrong secret reveals nothing, not even that the
 // id exists). No token exists before the first poll after the approval: that
 // poll mints it in the same transaction that moves the request to claimed, so
-// the token is returned once and never stored in any recoverable form.
+// the token is returned once and never stored in any recoverable form. That
+// answer also lists the channels the bot is in, read in the same transaction.
 func (s *Service) PollPairing(ctx context.Context, ip, id, secret string) (protocol.PairingStatus, error) {
 	if ok, wait := s.pairPoll.Allow(auth.IPKey(ip)); !ok {
 		return protocol.PairingStatus{}, &auth.RateLimitedError{RetryAfter: wait}
@@ -210,8 +211,11 @@ func (s *Service) PollPairing(ctx context.Context, ip, id, secret string) (proto
 			return status, nil
 		}
 		// An app an admin disabled after the approval gets no token.
-		var disabled sql.NullInt64
-		err = tx.QueryRowContext(tx.Context(), `SELECT disabled_at FROM apps WHERE id = ?`, cur.approvedApp.String).Scan(&disabled)
+		var (
+			botID    string
+			disabled sql.NullInt64
+		)
+		err = tx.QueryRowContext(tx.Context(), `SELECT user_id, disabled_at FROM apps WHERE id = ?`, cur.approvedApp.String).Scan(&botID, &disabled)
 		if errors.Is(err, sql.ErrNoRows) {
 			return status, nil
 		}
@@ -232,8 +236,33 @@ func (s *Service) PollPairing(ctx context.Context, ip, id, secret string) (proto
 		if _, err := tx.Exec(`UPDATE pairing_requests SET state = 'claimed' WHERE id = ?`, cur.id); err != nil {
 			return status, fmt.Errorf("claim pairing request: %w", err)
 		}
-		return protocol.PairingStatus{State: protocol.PairingClaimed, Token: secret, ExpiresAt: status.ExpiresAt}, nil
+		channels, err := botChannels(tx, botID)
+		if err != nil {
+			return status, err
+		}
+		return protocol.PairingStatus{State: protocol.PairingClaimed, Token: secret, ExpiresAt: status.ExpiresAt, Channels: channels}, nil
 	})
+}
+
+// botChannels lists the public and private channels, not archived, that the
+// bot userID is a member of, sorted by name then id. It is nil when there
+// are none, so the claim answer leaves the field out.
+func botChannels(tx *store.Tx, userID string) ([]protocol.PairingChannel, error) {
+	rows, err := tx.QueryContext(tx.Context(), `SELECT c.id, c.name FROM memberships m JOIN channels c ON c.id = m.channel_id
+		WHERE m.user_id = ? AND c.kind IN ('public', 'private') AND c.archived_at IS NULL ORDER BY c.name, c.id`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list bot channels: %w", err)
+	}
+	defer rows.Close()
+	var out []protocol.PairingChannel
+	for rows.Next() {
+		var ch protocol.PairingChannel
+		if err := rows.Scan(&ch.ID, &ch.Name); err != nil {
+			return nil, fmt.Errorf("list bot channels: %w", err)
+		}
+		out = append(out, ch)
+	}
+	return out, rows.Err()
 }
 
 // ListPending returns the open pairing requests, oldest first, each marked

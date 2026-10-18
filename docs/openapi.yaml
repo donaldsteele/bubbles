@@ -2583,10 +2583,10 @@ paths:
         No authentication besides the poll secret in `X-Poll-Secret`; a missing or wrong
         secret is `404` whatever the state. While the admin has not decided the state is
         `pending`. After approval the first poll answers `claimed` together with the token
-        and every later poll answers `claimed` without it, so the token is returned exactly
-        once. Other states: `denied`, `expired` (10 minutes after the request, or 5 minutes
-        after an approval that was never claimed; that app is then disabled). Limited per
-        source address.
+        and the channels the app's bot is in, and every later poll answers `claimed` without
+        them, so the token is returned exactly once. Other states: `denied`, `expired` (10
+        minutes after the request, or 5 minutes after an approval that was never claimed;
+        that app is then disabled). Limited per source address.
       security: []
       parameters:
         - $ref: "#/components/parameters/PairingId"
@@ -5620,7 +5620,12 @@ components:
       additionalProperties: false
       description: >-
         State of a pairing request. `token` is present in exactly one answer: the first
-        poll after the approval, which also moves the state to `claimed`.
+        poll after the approval, which also moves the state to `claimed`. `channels` is
+        present in that answer only, and only when the app's bot is in at least one channel:
+        the public and private channels, not archived, that the bot is a member of at the
+        claim, sorted by name then id. An app that posts alerts should check that it has at
+        least one; without `channels` its bot is in no channel yet and an admin must add it
+        to one.
       required: [state, expires_at]
       properties:
         state:
@@ -5631,6 +5636,22 @@ components:
         expires_at:
           type: string
           format: date-time
+        channels:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/PairingChannel"
+
+    PairingChannel:
+      type: object
+      additionalProperties: false
+      description: A channel the bot of a newly paired app is a member of.
+      required: [id, name]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        name:
+          type: string
 
     PendingPairing:
       type: object

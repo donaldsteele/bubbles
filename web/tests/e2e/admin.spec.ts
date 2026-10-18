@@ -60,6 +60,11 @@ test('pairing request is approved and the app receives its token', async ({ serv
   const req = a.page.getByRole('article', { name: 'Hall display' });
   await expect(req).toContainText(created.json.code as string);
   await req.getByRole('button', { name: 'Approve' }).click();
+  // The app asks for alerts:write, so creating its alerts channel starts ticked.
+  await expect(
+    req.getByRole('checkbox', { name: 'Also create a channel for this app' }),
+  ).toBeChecked();
+  await expect(req.getByRole('note')).toHaveCount(0);
   await req.getByRole('checkbox', { name: /^alerts:write/ }).check();
   await req.getByRole('button', { name: 'Approve' }).last().click();
   await expect(
@@ -72,6 +77,10 @@ test('pairing request is approved and the app receives its token', async ({ serv
   });
   expect(polled.json.state).toBe('claimed');
   expect(polled.json.token).toMatch(/^bub_/);
+  // The claim answer lists the channel the bot is in: the one just created.
+  expect(polled.json.channels).toEqual([
+    { id: expect.stringMatching(/^[0-9A-Z]{26}$/), name: 'hall-display-alerts' },
+  ]);
 });
 
 test('webhook is created and its URL shown once', async ({ open }) => {

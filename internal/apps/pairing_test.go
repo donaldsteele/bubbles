@@ -12,6 +12,7 @@ import (
 
 	"github.com/donaldsteele/bubbles/internal/auth"
 	"github.com/donaldsteele/bubbles/internal/chat"
+	"github.com/donaldsteele/bubbles/internal/store"
 	"github.com/donaldsteele/bubbles/pkg/protocol"
 )
 
@@ -391,5 +392,101 @@ func TestPairingApprovalIsAtomic(t *testing.T) {
 	}
 	if st := e.poll(p); st.State != protocol.PairingPending {
 		t.Errorf("state after failed approval: %+v", st)
+	}
+}
+
+func TestPairingClaimListsTheBotChannels(t *testing.T) {
+	channelNames := func(chs []protocol.PairingChannel) []string {
+		var out []string
+		for _, ch := range chs {
+			out = append(out, ch.Name)
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name   string
+		create bool
+		pick   []string
+		want   []string
+	}{
+		{"created alerts channel", true, nil, []string{"netdiag-alerts"}},
+		{"chosen existing channel", false, []string{"ops"}, []string{"ops"}},
+		{"both, sorted by name", true, []string{"ops", "lab"}, []string{"lab", "netdiag-alerts", "ops"}},
+		{"no channel", false, nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			ids := map[string]string{}
+			for _, name := range []string{"ops", "lab"} {
+				ids[name] = e.channel(name, protocol.ChannelPublic).ID
+			}
+			var pick []string
+			for _, name := range tc.pick {
+				pick = append(pick, ids[name])
+			}
+			p := e.pair("192.168.1.9", "netdiag", "alerts:write")
+			res, err := e.svc.ApprovePairing(e.ctx, e.admin, e.aud, p.ID, protocol.ApprovePairingRequest{ChannelIDs: pick, CreateChannel: tc.create})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.create {
+				ids["netdiag-alerts"] = res.ChannelIDs[0]
+			}
+			st := e.poll(p)
+			if st.State != protocol.PairingClaimed || !strings.HasPrefix(st.Token, "bub_") {
+				t.Fatalf("claim = %+v", st)
+			}
+			if got := channelNames(st.Channels); !slices.Equal(got, tc.want) {
+				t.Errorf("claim channels = %v, want %v", got, tc.want)
+			}
+			for _, ch := range st.Channels {
+				if ch.ID != ids[ch.Name] {
+					t.Errorf("channel %s has id %s, want %s", ch.Name, ch.ID, ids[ch.Name])
+				}
+			}
+			if tc.want == nil && st.Channels != nil {
+				t.Errorf("claim channels = %#v, want nil", st.Channels)
+			}
+			// The answer after the claim has neither the token nor the channels.
+			if again := e.poll(p); again.State != protocol.PairingClaimed || again.Token != "" || again.Channels != nil {
+				t.Errorf("poll after the claim = %+v", again)
+			}
+		})
+	}
+}
+
+func TestPairingClaimChannelsAreReadAtTheClaim(t *testing.T) {
+	e := newEnv(t)
+	ops := e.channel("ops", protocol.ChannelPublic)
+	old := e.channel("old", protocol.ChannelPublic)
+	p := e.pair("192.168.1.9", "netdiag", "alerts:write")
+	res, err := e.svc.ApprovePairing(e.ctx, e.admin, e.aud, p.ID, protocol.ApprovePairingRequest{ChannelIDs: []string{ops.ID, old.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Between the approval and the claim: a private channel gains the bot,
+	// "old" is archived, and the bot is in a direct message (which has no
+	// name and is not listed).
+	secret := e.channel("secret", protocol.ChannelPrivate, res.App.UserID)
+	if _, err := e.chat.ArchiveChannel(e.ctx, e.admin, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	err = e.db.Do(e.ctx, func(tx *store.Tx) error {
+		id := tx.NewID()
+		if _, err := tx.Exec(`INSERT INTO channels (id, kind, dm_key, created_at) VALUES (?, 'dm', ?, ?)`,
+			id, chat.DMKey([]string{e.admin.ID, res.App.UserID}), tx.Now()); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO memberships (channel_id, user_id, joined_at) VALUES (?, ?, ?), (?, ?, ?)`,
+			id, e.admin.ID, tx.Now(), id, res.App.UserID, tx.Now())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := e.poll(p)
+	want := []protocol.PairingChannel{{ID: ops.ID, Name: "ops"}, {ID: secret.ID, Name: "secret"}}
+	if st.State != protocol.PairingClaimed || !slices.Equal(st.Channels, want) {
+		t.Errorf("claim = %+v, want channels %+v", st, want)
 	}
 }

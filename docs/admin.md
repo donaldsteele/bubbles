@@ -147,8 +147,16 @@ Apps are accounts for integrations such as netdiag or your own scripts.
   request after comparing the pairing code, the requested scopes, the source
   address and the CA fingerprint shown on both sides. Approve or deny each
   request. When you approve, tick the channels the bot should join (it is added to
-  the ticked channels), and optionally also create a channel for the app. Up to 20
-  requests can be pending at once, and each IP address can create 5 per minute.
+  the ticked channels; archived channels are not offered), and optionally also
+  create a channel for the app (`#<app>-alerts`). For an app that asks for
+  `alerts:write`, "Also create a channel for this app" starts ticked, unless a
+  channel with that name already exists (channel names are unique, archived
+  channels included): then tick the existing channel instead. If you grant
+  `alerts:write` but tick no channel and leave the new channel unticked, a warning
+  next to Approve says the bot will be in no channel and cannot post alerts until
+  someone adds it to one; you can still approve. The app learns which channels
+  its bot is in when it receives its token. Up to 20 requests can be pending at
+  once, and each IP address can create 5 per minute.
 
 See [integrations.md](integrations.md) for the REST API, scopes and rate limits,
 and [mcp.md](mcp.md) for the MCP server.

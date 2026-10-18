@@ -499,6 +499,8 @@ export const en = {
     pairingChannels: 'Channels',
     pairingChannelsHelp: 'The bot is added to the checked channels.',
     createChannelFor: 'Also create a channel for this app',
+    pairingNoChannel:
+      "This app's bot will be in no channel, so it cannot post alerts until someone adds it to one.",
     pairingApproved: '{app} is connected.',
     // webhooks
     webhooksHelp: 'An incoming webhook lets a tool post into one channel through a secret URL.',

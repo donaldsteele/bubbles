@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/donaldsteele/bubbles/pkg/protocol"
@@ -63,6 +65,9 @@ type Pairing struct {
 	expires time.Time
 	cfg     Config
 	poll    time.Duration // initial poll interval (tests)
+
+	mu       sync.Mutex
+	channels []protocol.PairingChannel // from the claim answer; guarded by mu
 }
 
 // RequestPairing asks the admin for a token. serverURL is the HTTPS base
@@ -91,9 +96,22 @@ func (p *Pairing) Code() string { return p.code }
 // ExpiresAt is when the request lapses (zero if unknown).
 func (p *Pairing) ExpiresAt() time.Time { return p.expires }
 
+// Channels returns the channels the app's bot was in when the token was
+// claimed (public and private, not archived, sorted by name), as reported in
+// the answer that carried the token. It is nil before Wait succeeded, and
+// also when the bot is in no channel: an app that posts alerts should then
+// tell the user that an admin must add its bot to a channel. It is safe to
+// call from any goroutine, also while Wait runs.
+func (p *Pairing) Channels() []protocol.PairingChannel {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.channels)
+}
+
 // Wait polls with backoff until the request is approved, denied or expired,
 // or ctx ends. On approval it returns a Config carrying the token and the
-// pinned fingerprint; the server hands the token out exactly once.
+// pinned fingerprint; the server hands the token out exactly once. Channels
+// then reports the channels its bot is in.
 func (p *Pairing) Wait(ctx context.Context) (Config, error) {
 	wait := p.poll
 	for {
@@ -109,6 +127,9 @@ func (p *Pairing) Wait(ctx context.Context) (Config, error) {
 			if st.Token != "" {
 				cfg := p.cfg
 				cfg.Token = st.Token
+				p.mu.Lock()
+				p.channels = st.Channels
+				p.mu.Unlock()
 				return cfg, nil
 			}
 			switch st.State {
