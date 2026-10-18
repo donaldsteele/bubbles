@@ -147,6 +147,7 @@ func TestDeviceTokenReadsOnly(t *testing.T) {
 		{http.MethodPost, "/api/v1/files"},
 		{http.MethodGet, "/api/v1/search?q=a"},
 		{http.MethodGet, "/api/v1/apps/self"},
+		{http.MethodDelete, "/api/v1/apps/self/token"},
 		{http.MethodPut, "/api/v1/apps/self/commands"},
 		{http.MethodPost, "/api/v1/alerts"},
 		{http.MethodPost, "/api/v1/commands/invoke"},

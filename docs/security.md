@@ -107,6 +107,22 @@ Treat the server as a trusted machine that the chat members trust.
   the SHA-256 hash is stored. The full secret is shown once; the first 8
   characters identify the token. Tokens have scopes, optional expiry and optional
   channel allowlists.
+- **Pairing:** an app without credentials opens a request anonymously (LAN only, rate
+  limited) and polls it with a 256-bit poll secret, of which only the SHA-256 is stored. The
+  admin approves only after comparing the six-digit code and the CA fingerprint the app
+  shows; the token is minted at the first poll after the approval and returned exactly once.
+  A re-pairing can name the app it replaces, and an admin who approves it as a reconnect
+  hands the new token that app's bot, with every channel it is in and its history there,
+  and the claim revokes the app's old tokens. Anyone on the LAN can open a request that
+  names any app id, so the replace is only as safe as the admin's check: compare the code
+  and the fingerprint exactly as for a new pairing, and deny a reconnect you did not expect.
+  The request alone grants nothing, and the old tokens are revoked only at the claim, so an
+  unclaimed or cancelled replace leaves them working. Approving the reconnect of a disabled
+  app enables it at once, which revives its old tokens until the claim; if you disabled an
+  app because a token leaked, revoke that token as well. Cancelling a request needs its poll
+  secret (a wrong one is `404`,
+  like the poll), and an app's self-revoke (`DELETE /api/v1/apps/self/token`) needs the
+  token itself and only ends that token.
 - **Desktop tray (device tokens):** the tray signs in with `POST /auth/device-login`, which
   uses the same lockout counters as the web login. The device token carries only
   `events:read`, `messages:read` and `notify`; it may open the WebSocket, read the bootstrap

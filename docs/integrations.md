@@ -84,6 +84,9 @@ curl --cacert bubbles-ca.pem -H "$H" -F file=@report.pdf $B/api/v1/files
 curl --cacert bubbles-ca.pem -H "$H" -X PUT -H 'Content-Type: application/json' \
   -d '[{"name": "echo", "description": "Repeat text", "usage": "/echo <text>"}]' \
   $B/api/v1/apps/self/commands
+
+# disconnect: the token revokes itself (any scope); its next request is 401
+curl --cacert bubbles-ca.pem -H "$H" -X DELETE $B/api/v1/apps/self/token
 ```
 
 Errors use one shape: `{"error": {"code": "...", "message": "...", "details": {...}}}`
@@ -164,6 +167,8 @@ q.Flush(ctx)
 // Direct calls.
 msg, err := c.PostMessage(ctx, channelID, protocol.NewMessage{Body: "hi"})
 err = c.ResolveAlert(ctx, "printerOffline:192.168.1.50", "")
+self, err := c.Self(ctx) // keep self.App.ID for a later re-pairing
+err = c.RevokeSelf(ctx)  // "Disconnect": this token stops working
 
 // Events with automatic reconnect, resume and jittered backoff.
 events, err := c.Events(ctx)
@@ -200,16 +205,18 @@ Pairing gets an app a token without anyone copying secrets around.
    fingerprint over the unauthenticated onboarding port. Show
    `FormatFingerprint(fp)` to the user and have them compare it with the admin UI.
 3. **Request.** `RequestPairing(ctx, "https://host:28225", fp, protocol.PairingRequest{AppName: "netdiag", RequestedScopes: []string{"alerts:write", "channels:read", "messages:write", "files:write"}})`
-   (what netdiag v0.6 asks for) pins the CA from here on. Show `p.Code()` (6 digits) to the user.
+   (what netdiag v0.6 asks for) pins the CA from here on. Show `p.Code()` (6 digits) to the
+   user. An app that was paired before also sets `ReplacesAppID` (see [Reconnecting](#reconnecting)).
 4. **Approve.** An admin sees the pending request with the code, the requester's IP and the
-   CA fingerprint, picks scopes and channels (optionally creating `#<app>-alerts`, which
-   starts ticked when the app asks for `alerts:write` and no channel has that name yet) and
-   approves.
+   CA fingerprint, picks scopes and channels (optionally adding the bot to
+   `#<username>-alerts`, which starts ticked when the app asks for `alerts:write` and no
+   channel has that name yet; the server creates it, or adds the bot to it when a public
+   channel with that name already exists and is not archived) and approves.
 5. **Wait.** `cfg, err := p.Wait(ctx)` polls with backoff and returns a `Config` with the
    token and pinned fingerprint. The token is handed out exactly once, on the first poll
-   after approval, so store it right away (`cfg.ConnectionString()`). Denied or expired
-   requests return `ErrPairingDenied` / `ErrPairingExpired`. Requests expire after 10
-   minutes.
+   after approval, so store it right away (`cfg.ConnectionString()`). Denied, expired or
+   cancelled requests return `ErrPairingDenied` / `ErrPairingExpired` /
+   `ErrPairingCancelled`. Requests expire after 10 minutes.
 6. **Check the channels.** The answer that carries the token also lists the channels the
    app's bot is in at that moment, as `channels: [{"id": "…", "name": "netdiag-alerts"}]`:
    public and private channels that are not archived, sorted by name. `p.Channels()`
@@ -218,6 +225,46 @@ Pairing gets an app a token without anyone copying secrets around.
    yet, so tell the user that an admin must add it to one before alerts can be posted.
    Later polls answer `claimed` with neither the token nor the channels; to see the
    channels later, use `GET /api/v1/channels` with the `channels:read` scope.
+
+### Reconnecting
+
+An app that pairs again (a "Reconnect" button, a new install, a lost token) should not
+become a second app (`netdiag-2`) with a second bot. Remember the app id after the first
+pairing (`c.Self(ctx)` returns it as `App.ID`; `GET /api/v1/apps/self` over REST) and send
+it with the new request:
+
+```go
+p, err := bubblesclient.RequestPairing(ctx, url, fp, protocol.PairingRequest{
+    AppName: "netdiag", RequestedScopes: []string{"alerts:write"},
+    ReplacesAppID: savedAppID, // POST /pairing/requests {"replaces_app_id": "..."}
+})
+```
+
+The admin then sees "Replaces netdiag (@netdiag)", the channels its bot is in, and whether
+the app is disabled, with "Reconnect as the existing app" ticked. Approved that way, no app
+or bot is created: the existing app keeps its id, bot, username and channels, takes the new
+request's description, and is enabled again if it was disabled. Its old tokens keep working
+until the app claims the new one; the claim revokes all of them, so a lost or leaked old
+copy stops at that moment. An approval that is never claimed leaves the app as it is, old
+tokens included. If the admin unticks the box, the request becomes a new app as
+before. An id that names no app is ignored, so sending a stale id is harmless.
+
+### Disconnecting
+
+For a "Disconnect" button, revoke the app's own token before forgetting it:
+`c.RevokeSelf(ctx)` (`DELETE /api/v1/apps/self/token`, any scope). The server closes the
+token's live connections and answers its next request with `401`. The app and its bot stay,
+so a later re-pairing with `ReplacesAppID` reconnects the same app.
+
+### Cancelling a request
+
+While the user waits for the admin, `p.Cancel(ctx)` (`DELETE /api/v1/pairing/requests/{id}`
+with the `X-Poll-Secret` header) withdraws the request; `p.ID()` is its id. A running
+`Wait` then returns `ErrPairingCancelled`, the admin no longer sees the request, and polls
+answer `cancelled`. An approval the app has not claimed yet can be cancelled too: the app
+created for it is disabled, as when such an approval expires, while an app it would have
+reconnected is left as it was. Cancelling twice is fine; a request that already delivered its
+token, was denied or expired answers `409`. A wrong secret is `404`, as for the poll.
 
 Alternatively an admin creates an app and token directly and hands the connection string
 (text or QR) to the app.

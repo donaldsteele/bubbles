@@ -502,6 +502,14 @@ export const en = {
     pairingNoChannel:
       "This app's bot will be in no channel, so it cannot post alerts until someone adds it to one.",
     pairingApproved: '{app} is connected.',
+    pairingReplaces: 'Replaces {name} (@{username})',
+    pairingReplacesDisabled: 'Replaces {name} (@{username}), which is disabled',
+    pairingReplacesIn: 'Its bot is in {channels}.',
+    pairingReplacesInNone: 'Its bot is in no channel.',
+    pairingReconnect: 'Reconnect as the existing app',
+    pairingReconnectHelp:
+      'Keeps its bot and channels. Its old tokens stop working when the app connects.',
+    pairingReconnectEnables: 'Reconnecting enables it again.',
     // webhooks
     webhooksHelp: 'An incoming webhook lets a tool post into one channel through a secret URL.',
     newWebhook: 'New webhook',

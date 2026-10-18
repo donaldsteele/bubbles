@@ -29,6 +29,9 @@ var (
 	ErrPairingDenied  = errors.New("bubblesclient: pairing request denied")
 	ErrPairingExpired = errors.New("bubblesclient: pairing request expired")
 	ErrPairingClaimed = errors.New("bubblesclient: pairing token was already delivered")
+	// ErrPairingCancelled means the request was withdrawn with
+	// Pairing.Cancel before it delivered a token.
+	ErrPairingCancelled = errors.New("bubblesclient: pairing request cancelled")
 )
 
 // errPinMismatch is returned from the TLS verification callbacks and mapped

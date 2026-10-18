@@ -72,7 +72,10 @@ type Pairing struct {
 
 // RequestPairing asks the admin for a token. serverURL is the HTTPS base
 // URL; caFingerprint pins the CA (use the fingerprint the user confirmed
-// after FetchCA). Show Code() to the user, then call Wait.
+// after FetchCA). Show Code() to the user, then call Wait. An app that was
+// paired before sets req.ReplacesAppID to its app id (Client.Self) so the
+// admin can reconnect that app, keeping its bot and channels, instead of
+// creating a second one; the claim then revokes its old tokens.
 func RequestPairing(ctx context.Context, serverURL, caFingerprint string, req protocol.PairingRequest) (*Pairing, error) {
 	cfg := Config{BaseURL: serverURL, CAFingerprint: caFingerprint}
 	c, err := New(cfg)
@@ -89,6 +92,9 @@ func RequestPairing(ctx context.Context, serverURL, caFingerprint string, req pr
 	}
 	return p, nil
 }
+
+// ID is the pairing request id.
+func (p *Pairing) ID() string { return p.id }
 
 // Code is the short code to show the user; the admin compares it.
 func (p *Pairing) Code() string { return p.code }
@@ -108,10 +114,11 @@ func (p *Pairing) Channels() []protocol.PairingChannel {
 	return slices.Clone(p.channels)
 }
 
-// Wait polls with backoff until the request is approved, denied or expired,
-// or ctx ends. On approval it returns a Config carrying the token and the
-// pinned fingerprint; the server hands the token out exactly once. Channels
-// then reports the channels its bot is in.
+// Wait polls with backoff until the request is approved, denied, expired or
+// cancelled, or ctx ends. On approval it returns a Config carrying the token
+// and the pinned fingerprint; the server hands the token out exactly once.
+// Channels then reports the channels its bot is in. A cancelled request
+// (see Cancel) is ErrPairingCancelled.
 func (p *Pairing) Wait(ctx context.Context) (Config, error) {
 	wait := p.poll
 	for {
@@ -139,6 +146,8 @@ func (p *Pairing) Wait(ctx context.Context) (Config, error) {
 				return Config{}, ErrPairingExpired
 			case protocol.PairingClaimed:
 				return Config{}, ErrPairingClaimed
+			case protocol.PairingCancelled:
+				return Config{}, ErrPairingCancelled
 			}
 			wait = p.poll
 			continue
@@ -161,12 +170,36 @@ func (p *Pairing) Wait(ctx context.Context) (Config, error) {
 	}
 }
 
-func (p *Pairing) pollOnce(ctx context.Context, out *protocol.PairingStatus) error {
-	req, err := p.c.newRequest(ctx, http.MethodGet, apiPrefix+"/pairing/requests/"+pathEscape(p.id), nil)
+// Cancel withdraws the request, for a Cancel button while the user waits
+// for the admin. A pending request, or an approved one whose token was not
+// claimed yet, is cancelled: the admin can no longer approve it, and a Wait
+// still running returns ErrPairingCancelled. Cancelling twice is fine. A
+// request that already delivered its token, or was denied or expired,
+// answers an *APIError with status 409.
+func (p *Pairing) Cancel(ctx context.Context) error {
+	req, err := p.request(ctx, http.MethodDelete)
 	if err != nil {
 		return err
 	}
+	return p.c.roundTrip(req, nil)
+}
+
+func (p *Pairing) pollOnce(ctx context.Context, out *protocol.PairingStatus) error {
+	req, err := p.request(ctx, http.MethodGet)
+	if err != nil {
+		return err
+	}
+	return p.c.roundTrip(req, out)
+}
+
+// request builds a call on the request authenticated by the poll secret
+// alone.
+func (p *Pairing) request(ctx context.Context, method string) (*http.Request, error) {
+	req, err := p.c.newRequest(ctx, method, apiPrefix+"/pairing/requests/"+pathEscape(p.id), nil)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Del("Authorization")
 	req.Header.Set(protocol.PairingHeader, p.secret)
-	return p.c.roundTrip(req, out)
+	return req, nil
 }

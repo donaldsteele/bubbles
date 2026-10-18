@@ -83,6 +83,66 @@ test('pairing request is approved and the app receives its token', async ({ serv
   ]);
 });
 
+test('a re-pairing reconnects the existing app and ends its old token', async ({
+  server,
+  open,
+}) => {
+  const first = await server.must('POST', '/api/v1/pairing/requests', [201], {
+    as: null,
+    json: { app_name: 'Lab probe', requested_scopes: ['alerts:write'] },
+  });
+  await server.must('POST', `/api/v1/admin/pairing-requests/${first.json.id}/approve`, [200], {
+    as: users.admin,
+    json: { create_channel: true },
+  });
+  const claim = await server.must('GET', `/api/v1/pairing/requests/${first.json.id}`, [200], {
+    as: null,
+    headers: { 'X-Poll-Secret': first.json.poll_secret as string },
+  });
+  const oldToken = { bearer: claim.json.token as string };
+  const self = await server.must('GET', '/api/v1/apps/self', [200], { as: oldToken });
+  const appId = (self.json.app as { id: string }).id;
+
+  // The app pairs again, naming the app it was paired as.
+  const again = await server.must('POST', '/api/v1/pairing/requests', [201], {
+    as: null,
+    json: { app_name: 'Lab probe', requested_scopes: ['alerts:write'], replaces_app_id: appId },
+  });
+  const a = await open(users.admin);
+  await a.page.goto('/admin/pairing');
+  const req = a.page.getByRole('article', { name: 'Lab probe' });
+  await expect(req).toContainText(
+    'Replaces Lab probe (@lab-probe). Its bot is in #lab-probe-alerts.',
+  );
+  await req.getByRole('button', { name: 'Approve' }).click();
+  await expect(req.getByRole('checkbox', { name: 'Reconnect as the existing app' })).toBeChecked();
+  // Its bot already has a channel: nothing new to create, no warning.
+  await expect(
+    req.getByRole('checkbox', { name: 'Also create a channel for this app' }),
+  ).not.toBeChecked();
+  await expect(req.getByRole('note')).toHaveCount(0);
+  await req.getByRole('button', { name: 'Approve' }).last().click();
+  await expect(
+    a.page.getByRole('status').filter({ hasText: 'Lab probe is connected.' }),
+  ).toBeVisible();
+
+  // The old token works until the app claims the new one, then stops.
+  await server.must('GET', '/api/v1/apps/self', [200], { as: oldToken });
+  const polled = await server.must('GET', `/api/v1/pairing/requests/${again.json.id}`, [200], {
+    as: null,
+    headers: { 'X-Poll-Secret': again.json.poll_secret as string },
+  });
+  expect(polled.json.state).toBe('claimed');
+  expect(polled.json.channels).toEqual([
+    { id: expect.stringMatching(/^[0-9A-Z]{26}$/), name: 'lab-probe-alerts' },
+  ]);
+  await server.must('GET', '/api/v1/apps/self', [401], { as: oldToken });
+  const now = await server.must('GET', '/api/v1/apps/self', [200], {
+    as: { bearer: polled.json.token as string },
+  });
+  expect((now.json.app as { id: string }).id).toBe(appId);
+});
+
 test('webhook is created and its URL shown once', async ({ open }) => {
   const a = await open(users.admin);
   await a.page.goto('/admin/webhooks');

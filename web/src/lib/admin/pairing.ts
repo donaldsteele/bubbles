@@ -1,6 +1,10 @@
 // Choices of the pairing approval form (routes/admin/Pairing.svelte).
+import type { Schemas } from '../api/client';
 import type { Channel } from '../api/types';
 import type { Scope } from './scopes';
+
+/** The existing app a pairing request would replace. */
+export type Replaces = Schemas['PairingReplaces'];
 
 /** The username the server derives from an app name (deriveUsername in
  *  internal/apps/apps.go): lower-case ASCII letters, digits, '.' and '_', with
@@ -24,24 +28,34 @@ export function appUsername(appName: string): string {
   return u;
 }
 
-/** The name of the channel "Also create a channel" creates for an app
- *  (alertsChannelName in internal/apps/pairing.go). When the app's username
- *  is taken the server adds a suffix ("-2"), which this cannot know. */
+/** The alerts channel of a bot username (alertsChannelName in
+ *  internal/apps/pairing.go). */
+export function alertsChannelOf(username: string): string {
+  return username.replace(/[._]/g, '-') + '-alerts';
+}
+
+/** The name of the channel "Also create a channel" creates for a new app.
+ *  When the app's username is taken the server adds a suffix ("-2"), which
+ *  this cannot know. */
 export function alertsChannelName(appName: string): string {
-  return appUsername(appName).replace(/[._]/g, '-') + '-alerts';
+  return alertsChannelOf(appUsername(appName));
 }
 
 /** An app that asks for alerts:write needs a channel to post in, so the
  *  approval form starts with "Also create a channel" ticked for it, unless a
  *  public or private channel (archived ones included) already has the name
- *  the server would give it: creating it would then fail. */
+ *  the server would give it. When the request reconnects an existing app
+ *  (replacing), its username decides the name, and a bot that is already in
+ *  a channel needs no new one. */
 export function createChannelByDefault(
   requested: readonly Scope[],
   appName: string,
   channels: readonly Channel[],
+  replacing: Replaces | null = null,
 ): boolean {
   if (!requested.includes('alerts:write')) return false;
-  const name = alertsChannelName(appName);
+  if (replacing && replacing.channels.length > 0) return false;
+  const name = replacing ? alertsChannelOf(replacing.username) : alertsChannelName(appName);
   return !channels.some((c) => (c.kind === 'public' || c.kind === 'private') && c.name === name);
 }
 
@@ -52,14 +66,17 @@ export function joinableChannels(channels: readonly Channel[]): Channel[] {
 }
 
 /** True when an approval would grant alerts:write while leaving the bot in no
- *  channel: no channel to create and no ticked channel that is not archived.
+ *  channel: no channel to create, no ticked channel that is not archived,
+ *  and (when reconnecting an existing app) no channel the bot is already in.
  *  The form then warns the admin; approving is still allowed. */
 export function alertsBotWithoutChannel(
   scopes: readonly Scope[],
   picked: readonly string[],
   channels: readonly Channel[],
   createChannel: boolean,
+  replacing: Replaces | null = null,
 ): boolean {
   if (!scopes.includes('alerts:write') || createChannel) return false;
+  if (replacing && replacing.channels.length > 0) return false;
   return !channels.some((c) => picked.includes(c.id) && c.archived_at === null);
 }

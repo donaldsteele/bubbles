@@ -9,8 +9,8 @@ import (
 	"github.com/donaldsteele/bubbles/internal/auth"
 )
 
-// registerAppRoutes adds GET /apps/self, the pairing endpoints and the admin
-// API for apps, tokens and pairing requests.
+// registerAppRoutes adds GET /apps/self, DELETE /apps/self/token, the pairing
+// endpoints and the admin API for apps, tokens and pairing requests.
 func registerAppRoutes(mux *http.ServeMux, d Deps) {
 	h := appAPI{api: &api{auth: d.Auth, logger: d.Logger}, apps: d.Apps, endpointFn: d.Endpoint}
 	public, _ := routeKinds(d)
@@ -18,11 +18,13 @@ func registerAppRoutes(mux *http.ServeMux, d Deps) {
 	admin := adminRoute(d)
 
 	mux.Handle("GET "+apiPrefix+"/apps/self", app(h.self))
+	mux.Handle("DELETE "+apiPrefix+"/apps/self/token", app(h.revokeSelf))
 
 	// Pairing is for an app that has no credentials yet: anonymous, LAN-guarded,
 	// limited per source address.
 	mux.Handle("POST "+apiPrefix+"/pairing/requests", public(h.createPairing))
 	mux.Handle("GET "+apiPrefix+"/pairing/requests/{id}", public(h.pollPairing))
+	mux.Handle("DELETE "+apiPrefix+"/pairing/requests/{id}", public(h.cancelPairing))
 
 	mux.Handle("GET "+apiPrefix+"/admin/apps", admin(h.listApps))
 	mux.Handle("POST "+apiPrefix+"/admin/apps", admin(h.createApp))
@@ -78,4 +80,20 @@ func (h appAPI) self(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, self)
+}
+
+// revokeSelf answers DELETE /apps/self/token: the calling app token revokes
+// itself (an app's "Disconnect"). Its next request is 401. A browser session
+// gets 403 like GET /apps/self.
+func (h appAPI) revokeSelf(w http.ResponseWriter, r *http.Request) {
+	p := auth.PrincipalFrom(r.Context())
+	if p.Token == nil {
+		WriteError(w, http.StatusForbidden, CodeForbidden, "only an app token can revoke itself")
+		return
+	}
+	if err := h.apps.RevokeToken(r.Context(), auditActorFrom(r), p.Token.AppID, p.Token.ID); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	noContent(w)
 }

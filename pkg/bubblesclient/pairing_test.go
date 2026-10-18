@@ -132,6 +132,7 @@ func TestPairingTerminalStates(t *testing.T) {
 		{protocol.PairingDenied, ErrPairingDenied},
 		{protocol.PairingExpired, ErrPairingExpired},
 		{protocol.PairingClaimed, ErrPairingClaimed},
+		{protocol.PairingCancelled, ErrPairingCancelled},
 	}
 	for _, tc := range tests {
 		t.Run(tc.state, func(t *testing.T) {

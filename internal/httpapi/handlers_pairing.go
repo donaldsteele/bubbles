@@ -32,3 +32,14 @@ func (h appAPI) pollPairing(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, st)
 }
+
+// cancelPairing answers DELETE /pairing/requests/{id}: the app withdraws its
+// request with the poll secret in X-Poll-Secret. A wrong or missing secret,
+// or an unknown id, is 404 exactly like the poll.
+func (h appAPI) cancelPairing(w http.ResponseWriter, r *http.Request) {
+	if err := h.apps.CancelPairing(r.Context(), clientIP(r), r.PathValue("id"), r.Header.Get(protocol.PairingHeader)); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	noContent(w)
+}

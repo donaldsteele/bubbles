@@ -26,11 +26,16 @@
   let scopes = $state<Scope[]>([]);
   let picked = $state<string[]>([]);
   let createChannel = $state(false);
+  // Reconnect the existing app the request names instead of creating one.
+  let replaceApp = $state(false);
   let scopeError = $state('');
   let busy = $state(false);
   let done = $state('');
   let joinable = $derived(joinableChannels(channels));
-  let noChannel = $derived(alertsBotWithoutChannel(scopes, picked, channels, createChannel));
+  let replacing = $derived(replaceApp ? (approving?.replaces ?? null) : null);
+  let noChannel = $derived(
+    alertsBotWithoutChannel(scopes, picked, channels, createChannel, replacing),
+  );
 
   async function load() {
     try {
@@ -57,9 +62,31 @@
     approving = p;
     scopes = [...p.requested_scopes];
     picked = [];
-    createChannel = createChannelByDefault(p.requested_scopes, p.app_name, channels);
+    setReplace(p, p.replaces !== undefined);
     scopeError = '';
     done = '';
+  }
+
+  // Choosing between a new app and the existing one changes which alerts
+  // channel the server would use and whether the bot already has a channel.
+  function setReplace(p: Pending, replace: boolean) {
+    replaceApp = replace && p.replaces !== undefined;
+    const existing = replaceApp ? (p.replaces ?? null) : null;
+    createChannel = createChannelByDefault(p.requested_scopes, p.app_name, channels, existing);
+  }
+
+  function replacesLine(r: NonNullable<Pending['replaces']>): string {
+    const who = fmt(r.disabled_at ? t.admin.pairingReplacesDisabled : t.admin.pairingReplaces, {
+      name: r.name,
+      username: r.username,
+    });
+    const where =
+      r.channels.length > 0
+        ? fmt(t.admin.pairingReplacesIn, {
+            channels: r.channels.map((c) => '#' + c.name).join(', '),
+          })
+        : t.admin.pairingReplacesInNone;
+    return who + '. ' + where;
   }
 
   async function approve(e: SubmitEvent) {
@@ -73,7 +100,12 @@
       const r = await call(
         api.POST('/admin/pairing-requests/{id}/approve', {
           params: { path: { id: p.id } },
-          body: { scopes, channel_ids: picked, create_channel: createChannel },
+          body: {
+            scopes,
+            channel_ids: picked,
+            create_channel: createChannel,
+            ...(p.replaces ? { replace_app: replaceApp } : {}),
+          },
         }),
       );
       done = fmt(t.admin.pairingApproved, { app: r.app.name });
@@ -110,6 +142,7 @@
     <article class="panel req" aria-labelledby={`pr-${p.id}`}>
       <h3 id={`pr-${p.id}`}>{p.app_name}</h3>
       {#if p.description}<p>{p.description}</p>{/if}
+      {#if p.replaces}<p class="replaces">{replacesLine(p.replaces)}</p>{/if}
       <dl>
         <div>
           <dt>{t.admin.pairingCode}</dt>
@@ -141,6 +174,24 @@
       </div>
       {#if approving?.id === p.id}
         <form class="form" onsubmit={approve} novalidate>
+          {#if p.replaces}
+            <div>
+              <label class="inline">
+                <input
+                  type="checkbox"
+                  checked={replaceApp}
+                  disabled={busy}
+                  aria-describedby={`pair-${p.id}-reconnect`}
+                  onchange={(e) => setReplace(p, e.currentTarget.checked)}
+                />
+                {t.admin.pairingReconnect}
+              </label>
+              <p id={`pair-${p.id}-reconnect`} class="hint">
+                {t.admin.pairingReconnectHelp}
+                {#if p.replaces.disabled_at}{t.admin.pairingReconnectEnables}{/if}
+              </p>
+            </div>
+          {/if}
           <ScopePicker bind:scopes error={scopeError} idPrefix={`pair-${p.id}`} disabled={busy} />
           <ChannelPicker
             channels={joinable}
@@ -194,6 +245,9 @@
   }
   dd {
     margin: 0;
+  }
+  .replaces {
+    font-weight: 600;
   }
   .warn {
     margin: 0;
