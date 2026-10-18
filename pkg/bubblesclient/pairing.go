@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/donaldsteele/bubbles/pkg/protocol"
@@ -65,7 +66,8 @@ type Pairing struct {
 	cfg     Config
 	poll    time.Duration // initial poll interval (tests)
 
-	channels []protocol.PairingChannel // from the claim answer
+	mu       sync.Mutex
+	channels []protocol.PairingChannel // from the claim answer; guarded by mu
 }
 
 // RequestPairing asks the admin for a token. serverURL is the HTTPS base
@@ -98,8 +100,13 @@ func (p *Pairing) ExpiresAt() time.Time { return p.expires }
 // claimed (public and private, not archived, sorted by name), as reported in
 // the answer that carried the token. It is nil before Wait succeeded, and
 // also when the bot is in no channel: an app that posts alerts should then
-// tell the user that an admin must add its bot to a channel.
-func (p *Pairing) Channels() []protocol.PairingChannel { return slices.Clone(p.channels) }
+// tell the user that an admin must add its bot to a channel. It is safe to
+// call from any goroutine, also while Wait runs.
+func (p *Pairing) Channels() []protocol.PairingChannel {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.channels)
+}
 
 // Wait polls with backoff until the request is approved, denied or expired,
 // or ctx ends. On approval it returns a Config carrying the token and the
@@ -120,7 +127,9 @@ func (p *Pairing) Wait(ctx context.Context) (Config, error) {
 			if st.Token != "" {
 				cfg := p.cfg
 				cfg.Token = st.Token
+				p.mu.Lock()
 				p.channels = st.Channels
+				p.mu.Unlock()
 				return cfg, nil
 			}
 			switch st.State {

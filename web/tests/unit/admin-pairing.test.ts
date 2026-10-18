@@ -1,6 +1,12 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { alertsBotWithoutChannel, createChannelByDefault } from '../../src/lib/admin/pairing';
+import {
+  alertsBotWithoutChannel,
+  alertsChannelName,
+  appUsername,
+  createChannelByDefault,
+  joinableChannels,
+} from '../../src/lib/admin/pairing';
 import type { Schemas } from '../../src/lib/api/client';
 import type { Channel } from '../../src/lib/api/types';
 import Pairing from '../../src/routes/admin/Pairing.svelte';
@@ -51,13 +57,15 @@ function ok(data: unknown) {
 }
 
 let pending: Schemas['PendingPairing'][] = [];
+let listed: Channel[] = [];
 
 beforeEach(() => {
+  listed = [ops, old];
   apiMock.GET.mockReset();
   apiMock.POST.mockReset();
   apiMock.GET.mockImplementation((path: string) => {
     if (path === '/admin/pairing-requests') return Promise.resolve(ok({ items: pending }));
-    if (path === '/admin/channels') return Promise.resolve(ok({ items: [ops, old] }));
+    if (path === '/admin/channels') return Promise.resolve(ok({ items: listed }));
     return Promise.resolve(ok({ items: [] }));
   });
 });
@@ -72,6 +80,9 @@ async function openApproval(scopes: Schemas['Scope'][]) {
   pending = [request(scopes)];
   render(Pairing);
   const req = await screen.findByRole('article', { name: 'netdiag' });
+  // The mocked requests resolve at once: one macrotask turn lets the channel
+  // list arrive before the form opens, as the pre-tick depends on it.
+  await new Promise((r) => setTimeout(r, 0));
   await fireEvent.click(within(req).getByRole('button', { name: 'Approve' }));
   const create = within(req).getByRole('checkbox', {
     name: 'Also create a channel for this app',
@@ -83,11 +94,41 @@ async function openApproval(scopes: Schemas['Scope'][]) {
 }
 
 describe('pairing approval choices', () => {
+  it('derives the username and alerts channel name the way the server does', () => {
+    expect(appUsername('netdiag')).toBe('netdiag');
+    expect(appUsername('  Hall Display!! ')).toBe('hall-display');
+    expect(appUsername('net.diag_2')).toBe('net.diag_2');
+    expect(appUsername('x')).toBe('app-x');
+    expect(appUsername('!!')).toBe('app');
+    expect(appUsername('a'.repeat(31) + '-bc')).toBe('a'.repeat(31));
+    expect(alertsChannelName('netdiag')).toBe('netdiag-alerts');
+    expect(alertsChannelName('Hall display')).toBe('hall-display-alerts');
+    expect(alertsChannelName('net.diag_2')).toBe('net-diag-2-alerts');
+  });
+
   it('creates a channel by default only for an app that asks for alerts:write', () => {
-    expect(createChannelByDefault(['alerts:write'])).toBe(true);
-    expect(createChannelByDefault(['messages:read', 'alerts:write'])).toBe(true);
-    expect(createChannelByDefault(['messages:write'])).toBe(false);
-    expect(createChannelByDefault([])).toBe(false);
+    const chans = [ops, old];
+    expect(createChannelByDefault(['alerts:write'], 'netdiag', chans)).toBe(true);
+    expect(createChannelByDefault(['messages:read', 'alerts:write'], 'netdiag', chans)).toBe(true);
+    expect(createChannelByDefault(['messages:write'], 'netdiag', chans)).toBe(false);
+    expect(createChannelByDefault([], 'netdiag', chans)).toBe(false);
+  });
+
+  it('does not create a channel by default when its name is taken', () => {
+    const taken = channel('01CHANNDA00000000000000000', 'netdiag-alerts');
+    expect(createChannelByDefault(['alerts:write'], 'netdiag', [ops, taken])).toBe(false);
+    // Names are unique across private and archived channels too.
+    const priv = { ...taken, kind: 'private' as const };
+    expect(createChannelByDefault(['alerts:write'], 'NetDiag', [priv])).toBe(false);
+    const gone = { ...taken, archived_at: '2026-02-01T10:00:00Z' };
+    expect(createChannelByDefault(['alerts:write'], 'netdiag', [gone])).toBe(false);
+    // A DM never holds a channel name.
+    const dm = { ...taken, kind: 'dm' as const };
+    expect(createChannelByDefault(['alerts:write'], 'netdiag', [dm])).toBe(true);
+  });
+
+  it('offers only channels that are not archived', () => {
+    expect(joinableChannels([ops, old])).toEqual([ops]);
   });
 
   it('warns only when alerts:write leaves the bot in no usable channel', () => {
@@ -107,6 +148,22 @@ describe('pairing approval form', () => {
     expect(create.checked).toBe(true);
     expect(screen.queryByText(warning)).toBeNull();
     expect(submit.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('starts unticked and warns when #<app>-alerts already exists', async () => {
+    listed = [ops, channel('01CHANNDA00000000000000000', 'netdiag-alerts')];
+    const { req, create } = await openApproval(['alerts:write']);
+    expect(create.checked).toBe(false);
+    expect(within(req).getByRole('note').textContent).toMatch(warning);
+    // Ticking the existing alerts channel instead clears the warning.
+    await fireEvent.click(within(req).getByRole('checkbox', { name: '#netdiag-alerts' }));
+    expect(within(req).queryByRole('note')).toBeNull();
+  });
+
+  it('does not offer archived channels', async () => {
+    const { req } = await openApproval(['alerts:write']);
+    expect(within(req).getByRole('checkbox', { name: '#ops' })).toBeTruthy();
+    expect(within(req).queryByRole('checkbox', { name: '#old' })).toBeNull();
   });
 
   it('starts unticked for an app that does not ask for alerts:write', async () => {

@@ -198,7 +198,8 @@ Pairing gets an app a token without anyone copying secrets around.
    pins the CA from here on. Show `p.Code()` (6 digits) to the user.
 4. **Approve.** An admin sees the pending request with the code, the requester's IP and the
    CA fingerprint, picks scopes and channels (optionally creating `#<app>-alerts`, which
-   starts ticked when the app asks for `alerts:write`) and approves.
+   starts ticked when the app asks for `alerts:write` and no channel has that name yet) and
+   approves.
 5. **Wait.** `cfg, err := p.Wait(ctx)` polls with backoff and returns a `Config` with the
    token and pinned fingerprint. The token is handed out exactly once, on the first poll
    after approval, so store it right away (`cfg.ConnectionString()`). Denied or expired

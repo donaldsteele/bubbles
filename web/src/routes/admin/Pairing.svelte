@@ -4,7 +4,11 @@
   import ScopePicker from '../../components/admin/ScopePicker.svelte';
   import { api, call, type Schemas } from '../../lib/api/client';
   import { formatDateTime, groupFingerprint } from '../../lib/admin/format';
-  import { alertsBotWithoutChannel, createChannelByDefault } from '../../lib/admin/pairing';
+  import {
+    alertsBotWithoutChannel,
+    createChannelByDefault,
+    joinableChannels,
+  } from '../../lib/admin/pairing';
   import type { Scope } from '../../lib/admin/scopes';
   import { validateScopes } from '../../lib/admin/validate';
   import { failureFrom } from '../../lib/forms';
@@ -25,6 +29,7 @@
   let scopeError = $state('');
   let busy = $state(false);
   let done = $state('');
+  let joinable = $derived(joinableChannels(channels));
   let noChannel = $derived(alertsBotWithoutChannel(scopes, picked, channels, createChannel));
 
   async function load() {
@@ -52,7 +57,7 @@
     approving = p;
     scopes = [...p.requested_scopes];
     picked = [];
-    createChannel = createChannelByDefault(p.requested_scopes);
+    createChannel = createChannelByDefault(p.requested_scopes, p.app_name, channels);
     scopeError = '';
     done = '';
   }
@@ -138,7 +143,7 @@
         <form class="form" onsubmit={approve} novalidate>
           <ScopePicker bind:scopes error={scopeError} idPrefix={`pair-${p.id}`} disabled={busy} />
           <ChannelPicker
-            {channels}
+            channels={joinable}
             bind:selected={picked}
             legend={t.admin.pairingChannels}
             help={t.admin.pairingChannelsHelp}

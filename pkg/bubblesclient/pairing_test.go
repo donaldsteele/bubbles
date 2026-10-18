@@ -89,6 +89,41 @@ func TestPairingApprovedWithoutChannels(t *testing.T) {
 	}
 }
 
+// A UI goroutine may read Channels while Wait runs in another one (the race
+// detector in CI checks that the access is synchronized).
+func TestPairingChannelsDuringWait(t *testing.T) {
+	pki := newPKI(t)
+	chans := []protocol.PairingChannel{{ID: "01JCHANOPS0000000000000000", Name: "ops"}}
+	srv := pairingServer(t, pki, []protocol.PairingStatus{
+		{State: protocol.PairingPending}, {State: protocol.PairingPending},
+		{State: protocol.PairingClaimed, Token: "bub_new", Channels: chans},
+	})
+	p, err := RequestPairing(context.Background(), srv.URL, pki.caFP, protocol.PairingRequest{AppName: "netdiag"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.poll = time.Millisecond
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Wait(context.Background())
+		done <- err
+	}()
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := p.Channels(); !slices.Equal(got, chans) {
+				t.Fatalf("channels = %+v, want %+v", got, chans)
+			}
+			return
+		default:
+			_ = p.Channels()
+		}
+	}
+}
+
 func TestPairingTerminalStates(t *testing.T) {
 	tests := []struct {
 		state string
