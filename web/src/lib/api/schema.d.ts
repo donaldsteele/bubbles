@@ -1354,7 +1354,7 @@ export interface paths {
     put?: never;
     /**
      * Approve a pairing request
-     * @description Admin only, browser session only. In one transaction: creates the app and its bot, records the approved `scopes` (default: the requested scopes), adds the bot to `channel_ids` and, with `create_channel`, to the public `<username>-alerts` channel: it is created, or reused when a public channel with that name exists and is not archived (a private or archived one is `409`). No token is created here: the app's first poll mints it. Only a pending request can be approved (`409` otherwise). With `replace_app` the request must name an existing app (`replaces` in the listing) whose bot account is not deactivated, else `409`: no app or bot is created; that app keeps its id, bot, username and channels, takes the request's description, is enabled again if it was disabled, and its bot is added to the chosen channels. Its other tokens are revoked when the app claims the new one, not before. Audited.
+     * @description Admin only, browser session only. In one transaction: creates the app and its bot, records the approved `scopes` (default: the requested scopes), adds the bot to `channel_ids` and, with `create_channel`, to the public `<username>-alerts` channel: it is created, or reused when a public channel with that name exists and is not archived (a private or archived one is `409`). No token is created here: the app's first poll mints it. Only a pending request can be approved (`409` otherwise). With `replace_app` the request must name an existing app (`replaces` in the listing) whose bot account is not deactivated, else `409`: no app or bot is created; that app keeps its id, bot, username and channels, takes the request's description, and its bot is added to the chosen channels. An enabled app's other tokens are revoked when the app claims the new one, not before. A disabled app is enabled again, and its tokens are revoked by the approval itself, so enabling it revives none of them. Audited.
      */
     post: operations['approvePairingRequest'];
     delete?: never;
@@ -2516,7 +2516,7 @@ export interface components {
       id: components['schemas']['Id'];
       name: string;
     };
-    /** @description An open pairing request as the admin sees it. `ca_fingerprint` is the SHA-256 fingerprint of the server's CA, to compare with the one the app displays. `replaces` is present when the request names an existing app (`replaces_app_id`). */
+    /** @description An open pairing request as the admin sees it. `ca_fingerprint` is the SHA-256 fingerprint of the server's CA, to compare with the one the app displays. `replaces` is present when the request names an existing app (`replaces_app_id`) whose bot account is not deactivated; such an app cannot be reconnected, so the request is then shown as a new app. */
     PendingPairing: {
       id: components['schemas']['Id'];
       app_name: string;

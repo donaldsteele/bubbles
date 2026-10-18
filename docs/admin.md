@@ -148,7 +148,7 @@ Apps are accounts for integrations such as netdiag or your own scripts.
   address and the CA fingerprint shown on both sides. Approve or deny each
   request. When you approve, tick the channels the bot should join (it is added to
   the ticked channels; archived channels are not offered), and optionally also
-  create a channel for the app (`#<app>-alerts`). For an app that asks for
+  create a channel for the app (`#<username>-alerts`). For an app that asks for
   `alerts:write`, "Also create a channel for this app" starts ticked, unless a
   channel with that name already exists (channel names are unique, archived
   channels included): then tick the existing channel instead. If you tick it
@@ -161,15 +161,18 @@ Apps are accounts for integrations such as netdiag or your own scripts.
   pending at once, and each IP address can create 5 per minute.
 - **Reconnecting an app**: when an app that was paired before pairs again, its
   request says "Replaces <name> (@username)", followed by the channels its bot is
-  in, and "which is disabled" when you disabled it. The approval form then has
+  in, and "which is disabled" when it is disabled. The approval form then has
   "Reconnect as the existing app" ticked: "Keeps its bot and channels. Its old
   tokens stop working when the app connects." Approved that way, no second app or
   bot is created: the existing app keeps its name, bot, username and channels,
-  gets the new request's description, and is enabled again if it was disabled
-  (audited). Channels you tick are added to the ones it has; "Also create a
-  channel" starts unticked when its bot is already in a channel, and no warning
-  is shown then. Its old tokens keep working until the app collects the new one,
-  and are revoked at that moment. Untick the box to approve the request as a new
+  and gets the new request's description. Channels you tick are added to the
+  ones it has; "Also create a channel" starts unticked when its bot is already in
+  a channel, and no warning is shown then. An enabled app's old tokens keep
+  working until the app collects the new one, and are revoked at that moment. A
+  disabled app is enabled again (audited) and its old tokens are revoked at once,
+  when you approve ("Reconnecting enables it again and revokes its old tokens at
+  once."), so a token you disabled the app for never works again, even if the
+  app never collects the new one. Untick the box to approve the request as a new
   app instead. Compare the code and the fingerprint as for any pairing: a
   reconnect hands the new token everything the old bot could reach.
 - An app can also **disconnect** itself (revoke its own token) and **cancel** a

@@ -1,10 +1,14 @@
 package bubblesclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -53,6 +57,79 @@ func TestRequestPairingSendsReplacesAppID(t *testing.T) {
 	}
 	if raw := sent(); raw == nil || raw["replaces_app_id"] != nil {
 		t.Errorf("first pairing sent replaces_app_id: %v", raw)
+	}
+}
+
+// TestRequestPairingFallsBackForAnOlderServer pairs against a fake of a
+// bubbles v0.2.0 server, which decodes POST /pairing/requests with
+// DisallowUnknownFields and so refuses replaces_app_id: RequestPairing sends
+// the request once more without it. Any other 400 is returned as it is.
+func TestRequestPairingFallsBackForAnOlderServer(t *testing.T) {
+	pki := newPKI(t)
+	var (
+		mu     sync.Mutex
+		bodies []string
+		strict = true // false: answer like a current server that rejects the id
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/pairing/requests", func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		old := strict
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if !old {
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"error":{"code":"bad_request","message":"one or more fields are invalid",` +
+				`"details":{"fields":{"replaces_app_id":"replaces_app_id must be an app id"}}}}`))
+			return
+		}
+		// The v0.2.0 request type, which has no replaces_app_id.
+		var in struct {
+			AppName         string   `json:"app_name"`
+			Description     string   `json:"description,omitempty"`
+			RequestedScopes []string `json:"requested_scopes,omitempty"`
+		}
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&in); err != nil {
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"error":{"code":"bad_request","message":"one or more fields are invalid",` +
+				`"details":{"fields":{"replaces_app_id":"unknown field"}}}}`))
+			return
+		}
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(protocol.PairingCreated{ID: "p1", PollSecret: "sec", Code: "123456",
+			ExpiresAt: time.Now().Add(10 * time.Minute).Format(time.RFC3339Nano)})
+	})
+	srv := pki.server(t, mux, true)
+	req := protocol.PairingRequest{AppName: "netdiag", RequestedScopes: []string{protocol.ScopeAlertsWrite}, ReplacesAppID: "01JAPPNETDIAG0000000000000"}
+	p, err := RequestPairing(context.Background(), srv.URL, pki.caFP, req)
+	if err != nil {
+		t.Fatalf("RequestPairing against v0.2.0: %v", err)
+	}
+	if p.ID() != "p1" {
+		t.Errorf("ID = %q", p.ID())
+	}
+	mu.Lock()
+	got := slices.Clone(bodies)
+	bodies, strict = nil, false
+	mu.Unlock()
+	if len(got) != 2 || !strings.Contains(got[0], `"replaces_app_id"`) || strings.Contains(got[1], "replaces_app_id") ||
+		!strings.Contains(got[1], `"app_name":"netdiag"`) {
+		t.Errorf("requests sent = %q, want one with replaces_app_id, then one without", got)
+	}
+
+	// A current server's own refusal of the id is not retried.
+	var ae *APIError
+	if _, err := RequestPairing(context.Background(), srv.URL, pki.caFP, req); !errors.As(err, &ae) || ae.Status != 400 {
+		t.Fatalf("RequestPairing with a refused id = %v, want the 400", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(bodies) != 1 {
+		t.Errorf("a refused id was sent %d times, want 1", len(bodies))
 	}
 }
 

@@ -295,7 +295,9 @@ describe('reconnecting an existing app', () => {
     expect(req.textContent).toContain(
       'Replaces netdiag (@netdiag), which is disabled. Its bot is in no channel.',
     );
-    expect(req.textContent).toContain('Reconnecting enables it again.');
+    expect(req.textContent).toContain(
+      'Reconnecting enables it again and revokes its old tokens at once.',
+    );
     // The bot is in no channel and #netdiag-alerts is free: ticked, as for a new app.
     expect(create.checked).toBe(true);
   });

@@ -125,6 +125,7 @@ outside it. An app's bot user only acts in channels it is a member of.
 | Alert ingest | 60 per minute, burst 20, per app |
 | Each incoming webhook | 30 per minute, burst 10 |
 | Pairing requests | 5 per minute per IP, 20 pending |
+| Pairing polls and cancels (one shared bucket) | 2 per second, burst 20, per IP |
 
 Over a limit the server answers `429 rate_limited` with a `Retry-After` header in seconds.
 Honour it; the SDK's `AlertQueue` does.
@@ -242,19 +243,29 @@ p, err := bubblesclient.RequestPairing(ctx, url, fp, protocol.PairingRequest{
 
 The admin then sees "Replaces netdiag (@netdiag)", the channels its bot is in, and whether
 the app is disabled, with "Reconnect as the existing app" ticked. Approved that way, no app
-or bot is created: the existing app keeps its id, bot, username and channels, takes the new
-request's description, and is enabled again if it was disabled. Its old tokens keep working
-until the app claims the new one; the claim revokes all of them, so a lost or leaked old
-copy stops at that moment. An approval that is never claimed leaves the app as it is, old
-tokens included. If the admin unticks the box, the request becomes a new app as
-before. An id that names no app is ignored, so sending a stale id is harmless.
+or bot is created: the existing app keeps its id, bot, username and channels, and takes the
+new request's description. The old tokens of an enabled app keep working until the app
+claims the new one; the claim revokes all of them, so a lost or leaked old copy stops at
+that moment. An approval that is never claimed leaves the app as it is, old tokens included.
+A disabled app is enabled again, and the approval itself revokes its old tokens, so none of
+them works again even if the new token is never claimed. If the admin unticks the box, the
+request becomes a new app as before. An id that names no app is ignored, so sending a stale
+id is harmless; so is the id of an app whose bot account is deactivated, which cannot be
+reconnected.
+
+Servers up to bubbles v0.2.0 do not know `replaces_app_id` and refuse it (`400` with
+`details.fields.replaces_app_id: "unknown field"`). `RequestPairing` then sends the request
+once more without it, and such a server pairs the app as a new one, as it always did. A
+client of its own should do the same.
 
 ### Disconnecting
 
 For a "Disconnect" button, revoke the app's own token before forgetting it:
 `c.RevokeSelf(ctx)` (`DELETE /api/v1/apps/self/token`, any scope). The server closes the
 token's live connections and answers its next request with `401`. The app and its bot stay,
-so a later re-pairing with `ReplacesAppID` reconnects the same app.
+so a later re-pairing with `ReplacesAppID` reconnects the same app. Forget the stored token
+even when `RevokeSelf` fails: servers up to bubbles v0.2.0 answer `404` or `405`, and there
+the token keeps working until an admin revokes it.
 
 ### Cancelling a request
 
@@ -262,9 +273,12 @@ While the user waits for the admin, `p.Cancel(ctx)` (`DELETE /api/v1/pairing/req
 with the `X-Poll-Secret` header) withdraws the request; `p.ID()` is its id. A running
 `Wait` then returns `ErrPairingCancelled`, the admin no longer sees the request, and polls
 answer `cancelled`. An approval the app has not claimed yet can be cancelled too: the app
-created for it is disabled, as when such an approval expires, while an app it would have
-reconnected is left as it was. Cancelling twice is fine; a request that already delivered its
-token, was denied or expired answers `409`. A wrong secret is `404`, as for the poll.
+created for it is disabled, as when such an approval expires, while an app it reconnected
+keeps what the approval did (its new description, the added channels, and being enabled)
+and its old tokens, except that a previously disabled app's old tokens stay revoked.
+Cancelling twice is fine; a request that already delivered its token, was denied or expired
+answers `409`. A wrong secret is `404`, as for the poll. Servers up to bubbles v0.2.0 answer
+`404` or `405`; stop polling, and the request expires after its 10 minutes.
 
 Alternatively an admin creates an app and token directly and hands the connection string
 (text or QR) to the app.

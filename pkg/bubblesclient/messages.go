@@ -31,7 +31,10 @@ func (c *Client) Self(ctx context.Context) (*protocol.AppSelf, error) {
 // "Disconnect" button: the server closes the token's live connections and
 // answers every later request with it as ErrUnauthorized. The app, its bot
 // and its other tokens stay. Any scope may do this. Forget the stored token
-// afterwards; there is no way to undo it.
+// afterwards, also when RevokeSelf fails; there is no way to undo it. A
+// server that predates it (bubbles v0.2.0 and earlier) answers an *APIError
+// with status 404 or 405, and the token keeps working there until an admin
+// revokes it.
 func (c *Client) RevokeSelf(ctx context.Context) error {
 	return c.do(ctx, "DELETE", apiPrefix+"/apps/self/token", nil, nil)
 }

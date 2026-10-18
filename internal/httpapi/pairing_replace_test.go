@@ -225,6 +225,19 @@ func TestPairingHTTPCancel(t *testing.T) {
 		t.Errorf("pairing.cancel audit rows = %d, want 2", n)
 	}
 
-	// The network gate and the Origin check apply like for the poll.
+	// The network gate applies like for the poll. As a state-changing request,
+	// a cancel that a browser sends from a foreign Origin is refused too, with
+	// the right secret, and leaves the request pending.
 	wantStatus(t, e.client("8.8.8.8").do(http.MethodDelete, "/api/v1/pairing/requests/"+p.ID, nil), http.StatusForbidden, CodeForbidden)
+	open := e.createPairing("192.168.1.79", "lab", "alerts:write")
+	rec = e.client("192.168.1.79").do(http.MethodDelete, "/api/v1/pairing/requests/"+open.ID, nil, func(r *http.Request) {
+		r.Header.Set(protocol.PairingHeader, open.PollSecret)
+		r.Header.Set("Origin", "https://evil.example")
+	})
+	wantStatus(t, rec, http.StatusForbidden, CodeForbidden)
+	rec = e.pollPairing("192.168.1.79", open, open.PollSecret)
+	wantStatus(t, rec, http.StatusOK, "")
+	if st := decodeBody[protocol.PairingStatus](t, rec); st.State != protocol.PairingPending {
+		t.Errorf("state after a cross-origin cancel = %q, want pending", st.State)
+	}
 }

@@ -171,14 +171,30 @@ func TestPairingReplaceUnclaimedExpiryKeepsTheAppEnabled(t *testing.T) {
 	}
 }
 
-func TestPairingReplaceReenablesADisabledApp(t *testing.T) {
-	e := newEnv(t)
+// disabledApp pairs "netdiag", gives it a second token, disables it (as an
+// admin who suspects a leaked token would) and returns the app and both
+// token secrets, with the second token in the authenticator's cache.
+func (e *env) disabledApp() (protocol.App, IssuedToken, string) {
+	e.t.Helper()
 	first, oldToken := e.pairedApp()
+	extra := e.token(first.App.ID, "messages:read")
+	if !e.live(extra.Secret) {
+		e.t.Fatal("the second token does not work")
+	}
 	off := true
 	if _, err := e.svc.UpdateApp(e.ctx, e.aud, first.App.ID, UpdateAppInput{Disabled: &off}); err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
-	p := e.repair("netdiag", first.App.ID, "alerts:write")
+	if e.live(oldToken) || e.live(extra.Secret) {
+		e.t.Fatal("a token of the disabled app works")
+	}
+	return first.App, extra, oldToken
+}
+
+func TestPairingReplaceReenablesADisabledApp(t *testing.T) {
+	e := newEnv(t)
+	app, extra, oldToken := e.disabledApp()
+	p := e.repair("netdiag", app.ID, "alerts:write")
 	if r := e.pending(p.ID).Replaces; r == nil || r.DisabledAt == nil {
 		t.Fatalf("replaces of a disabled app = %+v", r)
 	}
@@ -190,16 +206,67 @@ func TestPairingReplaceReenablesADisabledApp(t *testing.T) {
 		t.Errorf("reconnected app is still disabled: %+v", res.App)
 	}
 	if n := e.count(`SELECT COUNT(*) FROM audit_log WHERE action = 'app.enable' AND target_id = ? AND actor_id = ? AND json_extract(detail, '$.pairing_request') = ?`,
-		first.App.ID, e.admin.ID, p.ID); n != 1 {
+		app.ID, e.admin.ID, p.ID); n != 1 {
 		t.Errorf("app.enable audit rows = %d, want 1", n)
 	}
-	// Re-enabling also revives the old token until the claim revokes it.
-	if !e.live(oldToken) {
-		t.Error("old token rejected between the approval and the claim")
+	// The approval revokes the disabled app's tokens itself, so enabling it
+	// revives none of them, between the approval and the claim or ever.
+	if e.live(oldToken) || e.live(extra.Secret) {
+		t.Error("enabling the reconnected app revived an old token")
 	}
+	for q, want := range map[string]int{
+		`SELECT COUNT(*) FROM app_tokens WHERE app_id = '` + app.ID + `' AND revoked_at IS NULL`: 0,
+		`SELECT COUNT(*) FROM audit_log WHERE action = 'token.revoke' AND actor_id = '` + e.admin.ID +
+			`' AND json_extract(detail, '$.pairing_request') = '` + p.ID + `'`: 2,
+		`SELECT COUNT(*) FROM events WHERE type = 'session.revoked' AND payload LIKE '%"token_id":"` + extra.Info.ID + `"%'`: 1,
+	} {
+		if n := e.count(q); n != want {
+			t.Errorf("%s = %d, want %d", q, n, want)
+		}
+	}
+	if _, ok := e.svc.touched[extra.Info.ID]; ok {
+		t.Error("a token revoked by the approval is still in the authenticator's cache")
+	}
+	// The claim then has nothing left to revoke.
 	st := e.poll(p)
-	if st.State != protocol.PairingClaimed || !e.live(st.Token) || e.live(oldToken) {
+	if st.State != protocol.PairingClaimed || !e.live(st.Token) || e.live(oldToken) || e.live(extra.Secret) {
 		t.Errorf("claim = %+v (new live %v, old live %v)", st, e.live(st.Token), e.live(oldToken))
+	}
+	if n := e.count(`SELECT COUNT(*) FROM audit_log WHERE action = 'token.revoke' AND actor_kind = 'system'`); n != 0 {
+		t.Errorf("the claim revoked %d more tokens, want 0", n)
+	}
+}
+
+func TestPairingReplaceOfADisabledAppNeverClaimedRevivesNoToken(t *testing.T) {
+	for _, end := range []string{"expiry", "cancel"} {
+		t.Run(end, func(t *testing.T) {
+			e := newEnv(t)
+			app, extra, oldToken := e.disabledApp()
+			p := e.repair("netdiag", app.ID, "alerts:write")
+			if _, err := e.svc.ApprovePairing(e.ctx, e.admin, e.aud, p.ID, protocol.ApprovePairingRequest{ReplaceApp: true}); err != nil {
+				t.Fatal(err)
+			}
+			want := protocol.PairingExpired
+			if end == "cancel" {
+				if err := e.cancel(p); err != nil {
+					t.Fatal(err)
+				}
+				want = protocol.PairingCancelled
+			} else {
+				e.clock.Advance(PairingTTL + ClaimWindow)
+			}
+			if st := e.poll(p); st.State != want || st.Token != "" {
+				t.Fatalf("poll after the %s = %+v", end, st)
+			}
+			// The app stays enabled, as for any replace, but none of its old
+			// tokens works again.
+			if n := e.count(`SELECT COUNT(*) FROM apps WHERE id = ? AND disabled_at IS NULL`, app.ID); n != 1 {
+				t.Error("the app was disabled again")
+			}
+			if e.live(oldToken) || e.live(extra.Secret) {
+				t.Errorf("an old token of the disabled app works after the %s", end)
+			}
+		})
 	}
 }
 
@@ -257,9 +324,17 @@ func TestPairingReplaceOfADeactivatedBotIsAConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := e.repair("netdiag", first.App.ID, "alerts:write")
+	// Such an app cannot be reconnected, so the listing shows the request as
+	// a new app instead of offering a reconnect that could only fail.
+	if r := e.pending(p.ID).Replaces; r != nil {
+		t.Errorf("replaces of an app with a deactivated bot = %+v, want none", r)
+	}
 	if _, err := e.svc.ApprovePairing(e.ctx, e.admin, e.aud, p.ID, protocol.ApprovePairingRequest{ReplaceApp: true}); !errors.Is(err, chat.ErrConflict) ||
 		!strings.Contains(err.Error(), "deactivated") {
 		t.Errorf("replace of a deactivated bot: %v", err)
+	}
+	if n := e.count(`SELECT COUNT(*) FROM apps WHERE id = ? AND description = ?`, first.App.ID, first.App.Description); n != 1 {
+		t.Error("the refused replace changed the app")
 	}
 }
 

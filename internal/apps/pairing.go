@@ -165,8 +165,8 @@ func freeCode(tx *store.Tx) (string, error) {
 // expired. An approved request the app never claimed also disables that app
 // when it was created for the request: it never received a token, so it is
 // switched off (not deleted, which keeps the audit trail intact). The app of
-// a replaced request is left alone: it existed before, and its old tokens
-// still work because only the claim revokes them.
+// a replaced request is left alone: it existed before, and if it was enabled
+// its old tokens still work, because only the claim revokes them.
 func expireStale(tx *store.Tx, now int64) error {
 	if _, err := tx.Exec(`UPDATE apps SET disabled_at = ? WHERE disabled_at IS NULL AND id IN
 		(SELECT approved_app_id FROM pairing_requests
@@ -305,7 +305,7 @@ func (s *Service) PollPairing(ctx context.Context, ip, id, secret string) (proto
 			return status, err
 		}
 		if cur.replaced {
-			if revoked, err = revokeOtherTokens(tx, cur.approvedApp.String, botID, tok.ID, cur.id); err != nil {
+			if revoked, err = revokeOtherTokens(tx, audit.System, cur.approvedApp.String, botID, tok.ID, cur.id); err != nil {
 				return status, err
 			}
 		}
@@ -326,11 +326,13 @@ func (s *Service) PollPairing(ctx context.Context, ip, id, secret string) (proto
 	return st, err
 }
 
-// revokeOtherTokens revokes every unrevoked token of the app except keep,
-// the one the claim of pairing request reqID just minted. Each revocation is
-// audited like RevokeToken (actor System) and closes that token's live
-// connections when the claim commits. It returns the revoked token ids.
-func revokeOtherTokens(tx *store.Tx, appID, botID, keep, reqID string) ([]string, error) {
+// revokeOtherTokens revokes every unrevoked token of the app except keep
+// (empty keeps none) for pairing request reqID: at its claim, keep is the
+// token the claim just minted. Each revocation is audited like RevokeToken
+// by actor and closes that token's live connections when the transaction
+// commits. It returns the revoked token ids, which the caller drops from the
+// auth cache after the commit.
+func revokeOtherTokens(tx *store.Tx, actor audit.Actor, appID, botID, keep, reqID string) ([]string, error) {
 	rows, err := tx.QueryContext(tx.Context(), `SELECT id, prefix FROM app_tokens
 		WHERE app_id = ? AND id != ? AND revoked_at IS NULL ORDER BY id`, appID, keep)
 	if err != nil {
@@ -359,7 +361,7 @@ func revokeOtherTokens(tx *store.Tx, appID, botID, keep, reqID string) ([]string
 			return nil, err
 		}
 		detail := map[string]string{"app_id": appID, "prefix": o.prefix, "pairing_request": reqID}
-		if _, err := audit.Write(tx, audit.System.Entry(ActionTokenRevoke, "app_token", o.id, detail)); err != nil {
+		if _, err := audit.Write(tx, actor.Entry(ActionTokenRevoke, "app_token", o.id, detail)); err != nil {
 			return nil, err
 		}
 		ids = append(ids, o.id)
@@ -430,16 +432,19 @@ func (s *Service) ListPending(ctx context.Context, caFingerprint string) ([]prot
 }
 
 // loadReplaces describes the existing app a pairing request names, or
-// returns nil when there is no such app.
+// returns nil when there is no such app. An app whose bot account is
+// deactivated is nil too: it cannot be reconnected (reconnectApp refuses it,
+// and no route reactivates a bot account), so the admin sees the request as
+// a new app instead of a reconnect box that could only fail.
 func loadReplaces(ctx context.Context, q queryer, appID string) (*protocol.PairingReplaces, error) {
 	var (
-		r        protocol.PairingReplaces
-		botID    string
-		disabled sql.NullInt64
+		r                     protocol.PairingReplaces
+		botID                 string
+		disabled, deactivated sql.NullInt64
 	)
-	err := q.QueryRowContext(ctx, `SELECT a.id, a.name, u.username, a.disabled_at, a.user_id FROM apps a JOIN users u ON u.id = a.user_id
-		WHERE a.id = ?`, appID).Scan(&r.AppID, &r.Name, &r.Username, &disabled, &botID)
-	if isNoRows(err) {
+	err := q.QueryRowContext(ctx, `SELECT a.id, a.name, u.username, a.disabled_at, a.user_id, u.deactivated_at
+		FROM apps a JOIN users u ON u.id = a.user_id WHERE a.id = ?`, appID).Scan(&r.AppID, &r.Name, &r.Username, &disabled, &botID, &deactivated)
+	if isNoRows(err) || (err == nil && deactivated.Valid) {
 		return nil, nil
 	}
 	if err != nil {
@@ -465,10 +470,14 @@ func loadReplaces(ctx context.Context, q queryer, appID string) (*protocol.Pairi
 // With ReplaceApp the request must name an existing app, which is reconnected
 // instead: no app or bot is created, the app keeps its id, bot, username and
 // channel memberships, takes the request's description and is enabled again
-// if it was disabled. Its tokens stay as they are until the claim, which
-// revokes all but the new one.
+// if it was disabled. The tokens of an enabled app stay as they are until
+// the claim, which revokes all but the new one. A disabled app's tokens are
+// revoked by the approval itself (see reconnectApp), so enabling it revives
+// none of them.
 func (s *Service) ApprovePairing(ctx context.Context, admin chat.Actor, aud audit.Actor, id string, in protocol.ApprovePairingRequest) (protocol.PairingApproval, error) {
-	return run(ctx, s, func(tx *store.Tx) (protocol.PairingApproval, error) {
+	var revoked []string
+	res, err := run(ctx, s, func(tx *store.Tx) (protocol.PairingApproval, error) {
+		revoked = nil
 		now := tx.Now()
 		if err := expireStale(tx, now); err != nil {
 			return protocol.PairingApproval{}, err
@@ -497,7 +506,7 @@ func (s *Service) ApprovePairing(ctx context.Context, admin chat.Actor, aud audi
 		}
 		var app protocol.App
 		if in.ReplaceApp {
-			app, err = reconnectApp(tx, aud, row)
+			app, revoked, err = reconnectApp(tx, aud, row)
 		} else {
 			app, err = s.CreateAppTx(tx, aud, CreateAppInput{Name: row.appName, Description: row.description, OwnerID: admin.ID})
 		}
@@ -547,45 +556,60 @@ func (s *Service) ApprovePairing(ctx context.Context, admin chat.Actor, aud audi
 		}
 		return protocol.PairingApproval{App: app, ChannelIDs: added}, nil
 	})
+	if err == nil {
+		for _, tokenID := range revoked {
+			s.forget(tokenID)
+		}
+	}
+	return res, err
 }
 
 // reconnectApp prepares the existing app a pending request names for a
 // replace approval: it takes the request's description and is enabled again
 // if it was disabled (the admin chose to reconnect it; audited as
-// app.enable). A request that names no existing app, or an app whose bot
-// account is deactivated, is a conflict.
-func reconnectApp(tx *store.Tx, aud audit.Actor, row pairingRow) (protocol.App, error) {
+// app.enable). A disabled app's tokens did not work, and an admin may have
+// disabled it because one leaked, so they are revoked here (audited as
+// token.revoke by the admin) instead of at the claim: enabling the app
+// revives none of them, even when the approval is never claimed. It returns
+// the app and the ids of the tokens it revoked. A request that names no
+// existing app, or an app whose bot account is deactivated, is a conflict.
+func reconnectApp(tx *store.Tx, aud audit.Actor, row pairingRow) (protocol.App, []string, error) {
 	ctx := tx.Context()
 	if !row.replacesApp.Valid {
-		return protocol.App{}, conflict("this pairing request does not name an existing app to reconnect; approve it as a new app")
+		return protocol.App{}, nil, conflict("this pairing request does not name an existing app to reconnect; approve it as a new app")
 	}
 	app, err := loadApp(ctx, tx, row.replacesApp.String)
 	if errors.Is(err, chat.ErrNotFound) {
-		return protocol.App{}, conflict("the app this pairing request names no longer exists; approve it as a new app")
+		return protocol.App{}, nil, conflict("the app this pairing request names no longer exists; approve it as a new app")
 	}
 	if err != nil {
-		return protocol.App{}, err
+		return protocol.App{}, nil, err
 	}
 	var deactivated sql.NullInt64
 	if err := tx.QueryRowContext(ctx, `SELECT deactivated_at FROM users WHERE id = ?`, app.UserID).Scan(&deactivated); err != nil {
-		return protocol.App{}, fmt.Errorf("load bot user: %w", err)
+		return protocol.App{}, nil, fmt.Errorf("load bot user: %w", err)
 	}
 	if deactivated.Valid {
-		return protocol.App{}, conflict("the bot account of " + app.Name + " is deactivated; reactivate it, or approve the request as a new app")
+		return protocol.App{}, nil, conflict("the bot account of " + app.Name + " is deactivated, so it cannot be reconnected; approve the request as a new app")
 	}
 	if _, err := tx.Exec(`UPDATE apps SET description = ? WHERE id = ?`, row.description, app.ID); err != nil {
-		return protocol.App{}, fmt.Errorf("update replaced app: %w", err)
+		return protocol.App{}, nil, fmt.Errorf("update replaced app: %w", err)
 	}
+	var revoked []string
 	if app.DisabledAt != nil {
+		if revoked, err = revokeOtherTokens(tx, aud, app.ID, app.UserID, "", row.id); err != nil {
+			return protocol.App{}, nil, err
+		}
 		if _, err := tx.Exec(`UPDATE apps SET disabled_at = NULL WHERE id = ?`, app.ID); err != nil {
-			return protocol.App{}, fmt.Errorf("enable replaced app: %w", err)
+			return protocol.App{}, nil, fmt.Errorf("enable replaced app: %w", err)
 		}
 		detail := map[string]string{"name": app.Name, "pairing_request": row.id}
 		if _, err := audit.Write(tx, aud.Entry(ActionAppEnable, "app", app.ID, detail)); err != nil {
-			return protocol.App{}, err
+			return protocol.App{}, nil, err
 		}
 	}
-	return loadApp(ctx, tx, app.ID)
+	app, err = loadApp(ctx, tx, app.ID)
+	return app, revoked, err
 }
 
 // alertsChannel adds the bot of app to its public "<username>-alerts"

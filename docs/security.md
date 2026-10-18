@@ -116,13 +116,13 @@ Treat the server as a trusted machine that the chat members trust.
   and the claim revokes the app's old tokens. Anyone on the LAN can open a request that
   names any app id, so the replace is only as safe as the admin's check: compare the code
   and the fingerprint exactly as for a new pairing, and deny a reconnect you did not expect.
-  The request alone grants nothing, and the old tokens are revoked only at the claim, so an
-  unclaimed or cancelled replace leaves them working. Approving the reconnect of a disabled
-  app enables it at once, which revives its old tokens until the claim; if you disabled an
-  app because a token leaked, revoke that token as well. Cancelling a request needs its poll
-  secret (a wrong one is `404`,
-  like the poll), and an app's self-revoke (`DELETE /api/v1/apps/self/token`) needs the
-  token itself and only ends that token.
+  The request alone grants nothing. An enabled app's old tokens are revoked only at the
+  claim, so an unclaimed or cancelled replace leaves them working. Approving the reconnect
+  of a disabled app enables it and, in the same step, revokes all of its old tokens: they
+  did not work while it was disabled, and they never work again, even if the replace is
+  never claimed, so a token you disabled the app for stays dead. Cancelling a request needs
+  its poll secret (a wrong one is `404`, like the poll), and an app's self-revoke
+  (`DELETE /api/v1/apps/self/token`) needs the token itself and only ends that token.
 - **Desktop tray (device tokens):** the tray signs in with `POST /auth/device-login`, which
   uses the same lockout counters as the web login. The device token carries only
   `events:read`, `messages:read` and `notify`; it may open the WebSocket, read the bootstrap
@@ -166,7 +166,7 @@ Treat the server as a trusted machine that the chat members trust.
 | Alert ingest | 60 per minute, burst 20, per app |
 | Incoming webhook | 30 per minute, burst 10 |
 | Pairing requests | 5 per minute per IP |
-| Pairing polls | 2 per second, burst 20, per IP |
+| Pairing polls and cancels (one shared bucket) | 2 per second, burst 20, per IP |
 | Login failures | 5 per account and 20 per IP address, sliding 15-minute window |
 | Sign-up | 20 per IP address per hour |
 

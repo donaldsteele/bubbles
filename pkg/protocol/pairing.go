@@ -59,7 +59,9 @@ type PairingChannel struct {
 // PendingPairing is a pairing request as the admin sees it: the code to
 // compare with the one the app shows, where it came from, and the CA
 // fingerprint the app displays too. Replaces is set when the request names
-// an existing app (PairingRequestInput.ReplacesAppID).
+// an existing app (PairingRequestInput.ReplacesAppID) whose bot account is
+// not deactivated: such an app cannot be reconnected, so the request then
+// shows as a new app.
 type PendingPairing struct {
 	ID              string           `json:"id"`
 	AppName         string           `json:"app_name"`
@@ -98,7 +100,8 @@ type PendingPairingList struct {
 // grants the scopes the app requested. ReplaceApp reconnects the existing
 // app the request names (PendingPairing.Replaces) instead of creating a new
 // one: it keeps its id, bot and channels, and its other tokens are revoked
-// when the app claims the new one.
+// when the app claims the new one (a disabled app's tokens already at the
+// approval, which enables it again).
 type ApprovePairingRequest struct {
 	Scopes        []string `json:"scopes,omitempty"`
 	ChannelIDs    []string `json:"channel_ids,omitempty"`

@@ -509,7 +509,7 @@ export const en = {
     pairingReconnect: 'Reconnect as the existing app',
     pairingReconnectHelp:
       'Keeps its bot and channels. Its old tokens stop working when the app connects.',
-    pairingReconnectEnables: 'Reconnecting enables it again.',
+    pairingReconnectEnables: 'Reconnecting enables it again and revokes its old tokens at once.',
     // webhooks
     webhooksHelp: 'An incoming webhook lets a tool post into one channel through a secret URL.',
     newWebhook: 'New webhook',

@@ -75,7 +75,10 @@ type Pairing struct {
 // after FetchCA). Show Code() to the user, then call Wait. An app that was
 // paired before sets req.ReplacesAppID to its app id (Client.Self) so the
 // admin can reconnect that app, keeping its bot and channels, instead of
-// creating a second one; the claim then revokes its old tokens.
+// creating a second one; the claim then revokes its old tokens. A server
+// that predates the field (bubbles v0.2.0 and earlier) refuses it as an
+// unknown field; RequestPairing then sends the request once more without it,
+// and that server pairs the app as a new one, as it always did.
 func RequestPairing(ctx context.Context, serverURL, caFingerprint string, req protocol.PairingRequest) (*Pairing, error) {
 	cfg := Config{BaseURL: serverURL, CAFingerprint: caFingerprint}
 	c, err := New(cfg)
@@ -83,7 +86,12 @@ func RequestPairing(ctx context.Context, serverURL, caFingerprint string, req pr
 		return nil, err
 	}
 	var created protocol.PairingCreated
-	if err := c.do(ctx, http.MethodPost, apiPrefix+"/pairing/requests", req, &created); err != nil {
+	err = c.do(ctx, http.MethodPost, apiPrefix+"/pairing/requests", req, &created)
+	if req.ReplacesAppID != "" && unknownField(err, "replaces_app_id") {
+		req.ReplacesAppID = ""
+		err = c.do(ctx, http.MethodPost, apiPrefix+"/pairing/requests", req, &created)
+	}
+	if err != nil {
 		return nil, err
 	}
 	p := &Pairing{c: c, id: created.ID, secret: created.PollSecret, code: created.Code, cfg: c.Config(), poll: time.Second}
@@ -91,6 +99,14 @@ func RequestPairing(ctx context.Context, serverURL, caFingerprint string, req pr
 		p.expires = t
 	}
 	return p, nil
+}
+
+// unknownField reports whether err is the 400 a server answers to a request
+// body with a field it does not know (details.fields names it "unknown
+// field").
+func unknownField(err error, field string) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.Status == http.StatusBadRequest && ae.FieldErrors()[field] == "unknown field"
 }
 
 // ID is the pairing request id.
@@ -175,7 +191,9 @@ func (p *Pairing) Wait(ctx context.Context) (Config, error) {
 // claimed yet, is cancelled: the admin can no longer approve it, and a Wait
 // still running returns ErrPairingCancelled. Cancelling twice is fine. A
 // request that already delivered its token, or was denied or expired,
-// answers an *APIError with status 409.
+// answers an *APIError with status 409. A server that predates Cancel
+// (bubbles v0.2.0 and earlier) answers an *APIError with status 404 or 405;
+// its request then simply expires.
 func (p *Pairing) Cancel(ctx context.Context) error {
 	req, err := p.request(ctx, http.MethodDelete)
 	if err != nil {
