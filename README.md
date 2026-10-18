@@ -139,8 +139,9 @@ See [docs/integrations.md](docs/integrations.md) and [docs/netdiag.md](docs/netd
 
 ## MCP
 
-The MCP server lets Claude and other agents read channels, post messages and
-acknowledge alerts with an app token. Run the stdio bridge with:
+The MCP server lets Claude and other agents read channels, post messages, and list,
+post and resolve alerts with an app token (acknowledging is for people). Run the stdio
+bridge with:
 
 ```sh
 bubbles mcp --conn "bubbles://192.168.1.20:28225/?token=<app-token>&fp=sha256:<ca-fingerprint>"

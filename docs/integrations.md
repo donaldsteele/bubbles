@@ -95,15 +95,20 @@ A resource the token cannot see is always `404`, never `403`.
 
 | Scope | Allows |
 |-------|--------|
-| `messages:read` | Read messages, threads, pins and search in channels the app's bot is in; list commands |
+| `messages:read` | Read messages, threads, pins and search in channels the app's bot is in; list commands; list alerts (`GET /api/v1/alerts`) |
 | `messages:write` | Post, edit and delete the bot's messages, reactions, pins |
-| `alerts:write` | Post, ack and resolve alerts; list alerts |
+| `alerts:write` | Post alerts and resolve the app's own alerts by `dedupe_key` |
 | `files:write` | Upload files |
 | `channels:read` | List channels and members |
 | `events:read` | Receive channel events over the WebSocket (without it the socket only carries the app's own `command.invoked` frames) |
 | `commands` | Register slash commands and answer invocations |
 | `dm:write` | Start direct messages |
 | `mcp` | Use the MCP endpoint (combined with the scopes of the tools used) |
+
+A list of alerts carries message bodies, so `GET /api/v1/alerts` needs `messages:read`;
+`alerts:write` alone is refused with `403`. The MCP tool `list_alerts` needs `mcp`,
+`alerts:write` and `messages:read`. Apps cannot acknowledge alerts or act on an alert by
+message id; acknowledging is for people.
 
 A token can also carry a channel allowlist; the app then never sees or touches anything
 outside it. An app's bot user only acts in channels it is a member of.
