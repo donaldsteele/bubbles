@@ -600,6 +600,22 @@ export const en = {
     caPem: 'Download ca.pem (macOS, Linux)',
     caMobileconfig: 'Download ca.mobileconfig (iPhone, iPad)',
     caPage: 'Open the onboarding page',
+    // tailscale
+    tsTitle: 'Tailscale',
+    tsOnTailnet: 'This server is on your tailnet as {name}.',
+    tsNoMagicDns: 'This server is on your tailnet. MagicDNS is off, so it has no tailnet name.',
+    tsNotRunning: 'Tailscale is not running on this server.',
+    tsIps: 'Tailscale addresses',
+    tsUrl: 'Tailnet address',
+    tsCopyUrl: 'Copy the tailnet address',
+    tsCertActive:
+      'Tailscale certificate served for {name}, valid until {date}. Devices on your tailnet can open {url} without installing the bubbles CA.',
+    tsCertNotServed: 'The Tailscale certificate is not being served.',
+    tsCertOff:
+      'Started with --tailscale-cert, this server serves a publicly trusted certificate for its tailnet name, so devices on your tailnet need no CA install. HTTPS certificates must be turned on for your tailnet. The name then appears in public Certificate Transparency logs.',
+    tsCaNotCovering:
+      'The bubbles CA does not cover {name}, so devices that trust it cannot use that name. Use {ip} instead, or start the server with --tailscale-cert.',
+    tsTailscaleAddress: 'the 100.x Tailscale address',
   },
   danger: {
     lead: 'These actions delete data for good. Download an encrypted backup first if you might need it.',

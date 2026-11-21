@@ -172,6 +172,7 @@ func startLogged(t *testing.T, cfg config.Config, logger *slog.Logger, adjust fu
 		NewTicker: h.tickers.New,
 		LANAddrs:  h.lan.get,
 		Hostname:  func() (string, error) { return "test-host", nil },
+		Tailnet:   noTailnet{},
 	}
 	if adjust != nil {
 		adjust(&opts)
@@ -414,7 +415,7 @@ func TestNewFailsCleanlyWhenPortTaken(t *testing.T) {
 	h := start(t, cfg)
 	cfg2 := testConfig(t)
 	cfg2.HTTPAddr = h.app.HTTPAddr().String()
-	_, err := New(context.Background(), cfg2, nil, Options{LANAddrs: func() ([]netip.Addr, error) { return nil, nil }})
+	_, err := New(context.Background(), cfg2, nil, Options{LANAddrs: func() ([]netip.Addr, error) { return nil, nil }, Tailnet: noTailnet{}})
 	if err == nil || !strings.Contains(err.Error(), "--http-addr") {
 		t.Fatalf("New with a taken port: %v", err)
 	}

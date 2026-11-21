@@ -40,6 +40,10 @@ type pageData struct {
 	RegisterURL string
 	// SignupClosed is true on the main page while sign-up is closed.
 	SignupClosed bool
+	// TailnetURL is the HTTPS address on the server's Tailscale name ("" if
+	// none); TailnetTrusted says it needs no CA install.
+	TailnetURL     string
+	TailnetTrusted bool
 }
 
 func (s *server) instance() string {
@@ -80,6 +84,9 @@ func (s *server) data(r *http.Request) pageData {
 	}
 	if len(d.URLs) > 0 {
 		d.Target = d.URLs[0]
+	}
+	if s.opts.Tailnet != nil {
+		d.TailnetURL, d.TailnetTrusted = s.opts.Tailnet()
 	}
 	return d
 }

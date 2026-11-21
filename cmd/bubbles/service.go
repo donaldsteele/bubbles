@@ -12,7 +12,7 @@ import (
 	"github.com/donaldsteele/bubbles/internal/service"
 )
 
-const serviceUsage = "usage: bubbles service install|uninstall|start|stop|status [--data-dir D] [--https-addr A] [--http-addr A]"
+const serviceUsage = "usage: bubbles service install|uninstall|start|stop|status [--data-dir D] [--https-addr A] [--http-addr A] [--tailscale-cert]"
 
 func runService(args []string) int {
 	return serviceCmd(context.Background(), args, config.Options{AsService: true}, service.New(service.Options{}), os.Stdout, os.Stderr)
@@ -51,6 +51,7 @@ func serviceCmd(ctx context.Context, args []string, opts config.Options, mgr ser
 	dataDir := fs.String("data-dir", "", "service data directory (env "+config.EnvName("data-dir")+")")
 	httpsAddr := fs.String("https-addr", "", "HTTPS listen address passed to the service (default :28225)")
 	httpAddr := fs.String("http-addr", "", "onboarding HTTP listen address passed to the service (default :28226)")
+	tailscaleCert := fs.Bool("tailscale-cert", false, "serve Tailscale's HTTPS certificate for this machine's MagicDNS name (passed to the service)")
 	if code, done := parseSub(fs, "service "+sub, rest, stderr, serviceUsage); done {
 		return code
 	}
@@ -65,6 +66,7 @@ func serviceCmd(ctx context.Context, args []string, opts config.Options, mgr ser
 		if spec, err = service.DefaultSpec(); err == nil {
 			spec.DataDir, err = resolveDataDir(*dataDir, opts)
 			spec.HTTPSAddr, spec.HTTPAddr = *httpsAddr, *httpAddr
+			spec.TailscaleCert = *tailscaleCert
 		}
 		if err == nil {
 			err = mgr.Install(ctx, spec)

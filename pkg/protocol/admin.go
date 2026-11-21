@@ -157,4 +157,29 @@ type AdminTLS struct {
 	LeafFingerprint string   `json:"leaf_fingerprint"`
 	LeafNotAfter    string   `json:"leaf_not_after"`
 	SANs            []string `json:"sans"`
+	// Tailscale is this machine on its tailnet; omitted when the server
+	// is not on a tailnet and --tailscale-cert is off.
+	Tailscale *AdminTailscale `json:"tailscale,omitempty"`
+}
+
+// AdminTailscale is the Tailscale part of AdminTLS.
+type AdminTailscale struct {
+	// Running is true when Tailscale is up on the server machine.
+	Running bool `json:"running"`
+	// DNSName is the MagicDNS name ("" when MagicDNS is off) and URL the
+	// HTTPS address on it.
+	DNSName string `json:"dns_name"`
+	URL     string `json:"url"`
+	// IPs are the Tailscale addresses (100.x.y.z, fd7a:...).
+	IPs []string `json:"ips"`
+	// CertEnabled is --tailscale-cert; CertActive says the Tailscale
+	// certificate is served for DNSName, until CertNotAfter. CertError says
+	// why not when enabled but inactive.
+	CertEnabled  bool   `json:"cert_enabled"`
+	CertActive   bool   `json:"cert_active"`
+	CertNotAfter string `json:"cert_not_after,omitempty"`
+	CertError    string `json:"cert_error,omitempty"`
+	// CACoversName is true when the local CA may sign DNSName, so the name
+	// also works for devices that installed the CA.
+	CACoversName bool `json:"ca_covers_name"`
 }

@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -43,6 +44,7 @@ import (
 	"github.com/donaldsteele/bubbles/internal/search"
 	"github.com/donaldsteele/bubbles/internal/settings"
 	"github.com/donaldsteele/bubbles/internal/store"
+	"github.com/donaldsteele/bubbles/internal/tailnet"
 	"github.com/donaldsteele/bubbles/internal/tlsca"
 	"github.com/donaldsteele/bubbles/internal/wsgateway"
 )
@@ -75,6 +77,9 @@ type Options struct {
 	// AdminPassword fixes the password of the bootstrapped admin instead of a
 	// generated one (tests).
 	AdminPassword string
+	// Tailnet asks Tailscale about this machine; nil means the tailscale
+	// command line (tailnet.Client).
+	Tailnet TailnetClient
 	// LogFiles is the writer behind the server log; a factory reset wipes
 	// the log directory through it. Nil: the directory is wiped directly.
 	LogFiles LogFiles
@@ -105,6 +110,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.ShutdownTimeout <= 0 {
 		o.ShutdownTimeout = DefaultShutdownTimeout
+	}
+	if o.Tailnet == nil {
+		o.Tailnet = &tailnet.Client{}
 	}
 	return o
 }
@@ -141,6 +149,7 @@ type App struct {
 	notify   *notify.Dispatcher
 	retain   *retention.Job
 	certs    atomic.Pointer[tlsca.Manager] // replaced when a factory reset rotates the CA
+	ts       tailscaleState
 	httpsLn  net.Listener
 	httpLn   net.Listener
 	httpsSrv *http.Server
@@ -332,7 +341,14 @@ func (a *App) openCore(ctx context.Context) (err error) {
 		Hosts:            func() []string { return a.Certs().Status().SANs },
 		AllowedCIDRs:     a.settings.AllowedCIDRs,
 		RegistrationOpen: func() bool { return a.settings.RegistrationOpen(a.opts.Now()) },
-		Logger:           logger,
+		Tailnet: func() (string, bool) {
+			st := a.Tailscale(context.Background())
+			if st.URL == "" || !(st.CertActive || st.CACoversName) {
+				return "", false
+			}
+			return st.URL, st.CertActive
+		},
+		Logger: logger,
 	}))
 	a.jobs = a.defaultJobs()
 	return nil
@@ -345,12 +361,31 @@ func (a *App) openCore(ctx context.Context) (err error) {
 func CertManager(cfg config.Config, logger *slog.Logger, opts Options) (*tlsca.Manager, error) {
 	opts = opts.withDefaults()
 	host, _ := opts.Hostname()
+	// A new CA also permits this machine's Tailscale MagicDNS name (only
+	// that name, not the tailnet or ts.net), so the name works with the
+	// local CA; an existing CA keeps its constraints and the name is left
+	// out of its leaf (tlsca.Filter).
+	tsName := func() string {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		defer cancel()
+		info, err := opts.Tailnet.Status(ctx)
+		if err != nil {
+			return ""
+		}
+		return info.DNSName
+	}
+	caExtra := slices.Clone(cfg.TLSExtraDNS)
+	if cfg.TLSCert == "" {
+		if n := tsName(); n != "" {
+			caExtra = append(caExtra, n)
+		}
+	}
 	return tlsca.NewManager(tlsca.ManagerOptions{
 		Dir:      filepath.Join(cfg.DataDir, config.DirTLS),
 		CertFile: cfg.TLSCert,
 		KeyFile:  cfg.TLSKey,
-		CA:       tlsca.CAOptions{InstanceName: tlsca.NormalizeHostname(host), Hostname: host, ExtraDNS: cfg.TLSExtraDNS},
-		SANs:     SANSource(cfg, opts.LANAddrs, opts.Hostname),
+		CA:       tlsca.CAOptions{InstanceName: tlsca.NormalizeHostname(host), Hostname: host, ExtraDNS: caExtra},
+		SANs:     SANSourceWith(cfg, opts.LANAddrs, opts.Hostname, tsName),
 		Now:      opts.Now,
 		Logger:   logger,
 	})
@@ -358,13 +393,25 @@ func CertManager(cfg config.Config, logger *slog.Logger, opts Options) (*tlsca.M
 
 // SANSource returns the leaf SAN discovery function for cfg.
 func SANSource(cfg config.Config, lanAddrs func() ([]netip.Addr, error), hostname func() (string, error)) func() (tlsca.SANs, error) {
+	return SANSourceWith(cfg, lanAddrs, hostname, nil)
+}
+
+// SANSourceWith is SANSource that also adds the name tailnetName returns
+// (the Tailscale MagicDNS name; nil or "" adds nothing).
+func SANSourceWith(cfg config.Config, lanAddrs func() ([]netip.Addr, error), hostname func() (string, error), tailnetName func() string) func() (tlsca.SANs, error) {
 	return func() (tlsca.SANs, error) {
 		addrs, err := lanAddrs()
 		if err != nil {
 			return tlsca.SANs{}, err
 		}
 		host, _ := hostname()
-		return tlsca.Discover(tlsca.SANInput{Addrs: addrs, Hostname: host, MDNSName: cfg.MDNSName, Extra: cfg.TLSExtraDNS}), nil
+		extra := cfg.TLSExtraDNS
+		if tailnetName != nil {
+			if n := tailnetName(); n != "" {
+				extra = append(slices.Clone(extra), n)
+			}
+		}
+		return tlsca.Discover(tlsca.SANInput{Addrs: addrs, Hostname: host, MDNSName: cfg.MDNSName, Extra: extra}), nil
 	}
 }
 
@@ -459,6 +506,18 @@ func (a *App) Run(ctx context.Context) error {
 	a.logger.Info("listening", "https", a.HTTPSAddr().String(), "http", a.HTTPAddr().String(), "tls_mode", string(a.Certs().Mode()))
 	a.printBanner(a.opts.Stderr)
 	a.lifeMu.Unlock()
+	if a.cfg.TailscaleCert {
+		// tailscale cert can take a while the first time; the banner is
+		// already out, so say when the certificate is served.
+		go func() {
+			_ = a.refreshTailscaleCert(ctx)
+			if st := a.Tailscale(ctx); st.CertActive {
+				fmt.Fprintf(a.opts.Stderr, "  Tailscale certificate ready, no CA install needed on your tailnet:\n    %s\n\n", st.URL)
+			} else if st.CertError != "" {
+				fmt.Fprintf(a.opts.Stderr, "  Tailscale certificate not served: %s\n\n", st.CertError)
+			}
+		}()
+	}
 
 	var runErr error
 	select {
@@ -564,6 +623,16 @@ func (a *App) printBanner(w io.Writer) {
 			label = "Onboarding:"
 		}
 		fmt.Fprintf(w, "  %-12s %s\n", label, u)
+	}
+	if ts := a.Tailscale(context.Background()); ts.Running && ts.URL != "" {
+		note := "local CA"
+		switch {
+		case ts.CertEnabled:
+			note = "Tailscale certificate, --tailscale-cert"
+		case !ts.CACoversName:
+			note = "not covered by this CA; use the 100.x address, or --tailscale-cert"
+		}
+		fmt.Fprintf(w, "  %-12s %s  (%s)\n", "Tailscale:", ts.URL, note)
 	}
 	st := a.Certs().Status()
 	if st.Mode == tlsca.ModeBYO {

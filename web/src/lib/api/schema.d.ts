@@ -2797,6 +2797,26 @@ export interface components {
       /** Format: date-time */
       leaf_not_after: string;
       sans: string[];
+      tailscale?: components['schemas']['AdminTailscale'];
+    };
+    /** @description The server machine on its Tailscale tailnet. Omitted from `AdminTLS` when the server is not on a tailnet and `--tailscale-cert` is off. With `--tailscale-cert` the server serves the certificate Tailscale issues for `dns_name` to connections for that name, and the local-CA certificate to all others. */
+    AdminTailscale: {
+      running: boolean;
+      /** @description MagicDNS name; empty when MagicDNS is off. */
+      dns_name: string;
+      /** @description HTTPS address on the MagicDNS name; empty without one. */
+      url: string;
+      ips: string[];
+      /** @description --tailscale-cert is on. */
+      cert_enabled: boolean;
+      /** @description The Tailscale certificate is being served. */
+      cert_active: boolean;
+      /** Format: date-time */
+      cert_not_after?: string;
+      /** @description Why the Tailscale certificate is not served. */
+      cert_error?: string;
+      /** @description The local CA may sign dns_name. */
+      ca_covers_name: boolean;
     };
     /** @description Body of `POST /admin/backup`. */
     BackupRequest: {

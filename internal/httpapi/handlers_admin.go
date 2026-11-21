@@ -26,6 +26,9 @@ type HostStatus struct {
 	HTTPSURLs      []string
 	OnboardingURLs []string
 	TLS            tlsca.Status
+	// Tailscale is nil when the server is not on a tailnet and
+	// --tailscale-cert is off.
+	Tailscale *protocol.AdminTailscale
 }
 
 // AdminHost gives the admin endpoints the process-level state and actions.
@@ -454,8 +457,9 @@ func (h adminAPI) listAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h adminAPI) tlsBody() protocol.AdminTLS {
-	st := h.deps.Admin.Host().TLS
-	return protocol.AdminTLS{
+	host := h.deps.Admin.Host()
+	st := host.TLS
+	return protocol.AdminTLS{Tailscale: host.Tailscale,
 		Mode: string(st.Mode), CAFingerprint: st.CAFingerprint, LeafFingerprint: st.LeafFingerprint,
 		LeafNotAfter: protocol.FormatTime(st.LeafNotAfter.UnixMilli()), SANs: nonNil(st.SANs),
 	}

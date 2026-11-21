@@ -160,6 +160,16 @@ X.509 name constraints) restrict it to local names and private IP addresses. If
 a server offers anything else, the tray refuses it. So a fake "bubbles" on the
 network cannot get a certificate that public websites would trust.
 
+## Over Tailscale
+
+If the server and your device are on the same Tailscale tailnet, open the
+server's Tailscale address (`https://100.x.y.z:28225`) or its MagicDNS name from
+anywhere. When the server runs with `--tailscale-cert`, the onboarding page shows
+an **On Tailscale?** box: the MagicDNS address has a publicly trusted
+certificate, so you can skip installing the CA on devices that only use that
+address. Otherwise install the CA as above first. The tray app does not find
+servers on a tailnet by itself; type the name or address.
+
 ## Open bubbles
 
 1. Scan the QR code on the onboarding page or on the server with the target

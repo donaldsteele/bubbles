@@ -133,6 +133,8 @@ func (a *App) newCA() error {
 	}
 	a.certs.Store(m)
 	a.caRotated = true
+	// The new manager serves no Tailscale certificate yet.
+	go func() { _ = a.refreshTailscaleCert(context.Background()) }()
 	a.logger.Info("factory reset replaced the CA", "fingerprint", m.CA().Fingerprint())
 	return nil
 }

@@ -14,6 +14,7 @@ func (h adminHost) Host() httpapi.HostStatus {
 		HTTPSURLs:      a.URLs(),
 		OnboardingURLs: a.OnboardingURLs(),
 		TLS:            a.Certs().Status(),
+		Tailscale:      a.adminTailscale(),
 	}
 }
 

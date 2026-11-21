@@ -46,6 +46,8 @@ type Spec struct {
 	// the defaults; they also decide the firewall ports.
 	HTTPSAddr string
 	HTTPAddr  string
+	// TailscaleCert passes --tailscale-cert to serve.
+	TailscaleCert bool
 }
 
 // ServeArgs returns the argument list that starts the server for this spec.
@@ -56,6 +58,9 @@ func (s Spec) ServeArgs() []string {
 	}
 	if s.HTTPAddr != "" && s.HTTPAddr != config.DefaultHTTPAddr {
 		args = append(args, "--http-addr", s.HTTPAddr)
+	}
+	if s.TailscaleCert {
+		args = append(args, "--tailscale-cert")
 	}
 	return args
 }

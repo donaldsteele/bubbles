@@ -287,6 +287,20 @@ bubbles cert reissue --mdns-name bubbles --tls-extra-dns files.lan
 bubbles cert export-ca --format mobileconfig --out bubbles-ca.mobileconfig
 ```
 
+### Tailscale
+
+On a Tailscale tailnet, the server's 100.x address is in the leaf certificate
+like any LAN address. A CA created while the server is on the tailnet also
+permits its MagicDNS name (exactly that name) and puts it in the leaf. With
+`--tailscale-cert` the server also fetches the certificate Tailscale issues for
+its MagicDNS name (`tailscale cert`, every 6 hours; Tailscale renews it when
+needed), keeps it in `<data>/tailscale/`, and serves it to TLS connections for
+that name only. Other connections keep the local-CA certificate. Requirements:
+HTTPS certificates turned on for the tailnet, and, when the server does not
+run as root, `sudo tailscale set --operator=<service user>` once. The admin
+**Security** page and the console banner show the tailnet name, addresses and
+certificate state, including why the certificate is not served.
+
 To use your own certificate (your own PKI, or a certificate from a local
 authority you already trust), start the server with `--tls-cert` and `--tls-key`.
 This disables local issuance, so the local-CA onboarding steps do not apply;

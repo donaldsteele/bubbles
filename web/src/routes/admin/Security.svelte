@@ -37,6 +37,19 @@
   }
 
   const byo = $derived(tls?.mode === 'byo');
+  const ts = $derived(tls?.tailscale);
+  // The address to suggest when the local CA cannot sign the MagicDNS name.
+  const tsIpv4 = $derived(ts?.ips.find((ip) => !ip.includes(':')) ?? '');
+
+  let copied = $state(false);
+  async function copyUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+  }
 </script>
 
 <section aria-labelledby="sec-title">
@@ -74,6 +87,85 @@
     <ul>
       {#each tls.sans as san (san)}<li class="mono">{san}</li>{/each}
     </ul>
+
+    {#if ts}
+      <section aria-labelledby="ts-title">
+        <h3 id="ts-title">{t.admin.tsTitle}</h3>
+        <p class="lead">
+          {#if !ts.running}
+            {t.admin.tsNotRunning}
+          {:else if ts.dns_name}
+            {fmt(t.admin.tsOnTailnet, { name: ts.dns_name })}
+          {:else}
+            {t.admin.tsNoMagicDns}
+          {/if}
+        </p>
+        {#if ts.ips.length > 0 || ts.url}
+          <dl class="info">
+            {#if ts.ips.length > 0}
+              <div>
+                <dt>{t.admin.tsIps}</dt>
+                <dd>
+                  <ul class="plain">
+                    {#each ts.ips as ip (ip)}<li class="mono">{ip}</li>{/each}
+                  </ul>
+                </dd>
+              </div>
+            {/if}
+            {#if ts.url}
+              <div>
+                <dt>{t.admin.tsUrl}</dt>
+                <dd>
+                  <span class="mono"><a href={ts.url}>{ts.url}</a></span>
+                  <button
+                    class="btn small"
+                    type="button"
+                    aria-label={t.admin.tsCopyUrl}
+                    onclick={() => void copyUrl(ts.url)}>{t.admin.copy}</button
+                  >
+                  {#if copied}<span role="status">{t.admin.copied}</span>{/if}
+                </dd>
+              </div>
+            {/if}
+          </dl>
+        {/if}
+
+        {#if ts.cert_active}
+          <p>
+            {fmt(t.admin.tsCertActive, {
+              name: ts.dns_name,
+              date: formatDateTime(ts.cert_not_after),
+              url: ts.url || `https://${ts.dns_name}/`,
+            })}
+            {#if ts.cert_not_after}
+              <span class="chip" class:bad={daysUntil(ts.cert_not_after) < 30}
+                >{daysUntil(ts.cert_not_after) < 0
+                  ? t.admin.expired
+                  : fmt(t.admin.daysLeft, { n: String(daysUntil(ts.cert_not_after)) })}</span
+              >
+            {/if}
+          </p>
+        {:else if ts.cert_enabled}
+          <div class="callout" role="note">
+            <strong>{t.admin.tsCertNotServed}</strong>
+            {#if ts.cert_error}<p>{ts.cert_error}</p>{/if}
+          </div>
+        {:else}
+          <p class="hint">{t.admin.tsCertOff}</p>
+        {/if}
+
+        {#if !byo && ts.dns_name && !ts.ca_covers_name && !ts.cert_active}
+          <div class="callout" role="note">
+            <p>
+              {fmt(t.admin.tsCaNotCovering, {
+                name: ts.dns_name,
+                ip: tsIpv4 || t.admin.tsTailscaleAddress,
+              })}
+            </p>
+          </div>
+        {/if}
+      </section>
+    {/if}
 
     <h3>{t.admin.reissueTitle}</h3>
     <p class="lead">{byo ? t.admin.reissueByo : t.admin.reissueHelp}</p>
@@ -114,5 +206,16 @@
   h3 {
     margin: var(--s4) 0 var(--s2);
     font-size: 16px;
+  }
+  .plain {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .callout p {
+    margin: var(--s1) 0 0;
+  }
+  .callout p:first-child {
+    margin-top: 0;
   }
 </style>

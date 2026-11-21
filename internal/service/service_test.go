@@ -283,6 +283,14 @@ func TestServeArgsOmitDefaults(t *testing.T) {
 	if !reflect.DeepEqual(got, []string{"serve", "--data-dir", "/d"}) {
 		t.Errorf("ServeArgs = %v", got)
 	}
+	got = Spec{DataDir: "/d", TailscaleCert: true}.ServeArgs()
+	if !reflect.DeepEqual(got, []string{"serve", "--data-dir", "/d", "--tailscale-cert"}) {
+		t.Errorf("ServeArgs with --tailscale-cert = %v", got)
+	}
+	unit, err := RenderSystemdUnit(Spec{Exe: "/usr/local/bin/bubbles", DataDir: "/var/lib/bubbles", TailscaleCert: true})
+	if err != nil || !strings.Contains(unit, "ExecStart=/usr/local/bin/bubbles serve --data-dir /var/lib/bubbles --tailscale-cert\n") {
+		t.Errorf("unit with --tailscale-cert: %v\n%s", err, unit)
+	}
 }
 
 func TestLiveServiceGated(t *testing.T) {

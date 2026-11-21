@@ -53,10 +53,23 @@ Treat the server as a trusted machine that the chat members trust.
   with name constraints: DNS names `local`, `home.arpa`, `lan`, `internal`,
   `localdomain`, `localhost`, the server hostname and any `--tls-extra-dns`
   names given at creation; IP addresses only in the private, loopback and
-  link-local ranges and CGNAT (`100.64.0.0/10`) used by Tailscale. These limit
+  link-local ranges and CGNAT (`100.64.0.0/10`) used by Tailscale. A CA created
+  while the server is on a Tailscale tailnet also permits the server's exact
+  MagicDNS name (for example `chat-pi.tail1234.ts.net`), never `ts.net` or the
+  whole tailnet. These limit
   what the CA may sign **if** a client enforces them. Not every platform or
   browser enforces name constraints on user-installed roots, so do not rely on
   them alone.
+- **Tailscale certificate (`--tailscale-cert`).** The server can also serve the
+  publicly trusted certificate Tailscale issues for its MagicDNS name, to TLS
+  connections for that name only. It is obtained by the local `tailscale cert`
+  command (Tailscale proves control of the name to Let's Encrypt), and bubbles
+  only runs that command with fixed arguments. The name is published in the
+  Certificate Transparency logs. The Go SDK and the tray app pin the bubbles
+  CA; for a host name ending in `.ts.net` they also accept a chain that passes
+  the system's own verification for exactly that name, since only the machine
+  holding the name in its tailnet can get one. Every other host still needs
+  the pinned CA.
 - **Tray refuses unconstrained CAs.** The desktop tray app installs a CA only if
   its critical name constraints limit it to local names and private IP ranges. A
   fake `bubbles` server on the network therefore cannot get a certificate trusted

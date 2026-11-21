@@ -57,6 +57,11 @@ p {
   color: var(--muted);
 }
 
+.hint {
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
 .notice {
   border: 1px solid var(--line);
   border-left-width: 4px;

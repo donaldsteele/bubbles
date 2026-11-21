@@ -51,6 +51,8 @@ type Status struct {
 	LeafFingerprint string    `json:"leaf_fingerprint"`
 	LeafNotAfter    time.Time `json:"leaf_not_after"`
 	SANs            []string  `json:"sans"`
+	// SNI is the certificate served by name (SetSNICert), if any.
+	SNI *SNIStatus `json:"sni,omitempty"`
 }
 
 // Manager owns the served certificate: it issues and renews the leaf from
@@ -65,6 +67,7 @@ type Manager struct {
 	ca  *CA        // nil in BYO mode; immutable after NewManager
 	byo *byoSource
 	cur atomic.Pointer[tls.Certificate]
+	sni atomic.Pointer[sniCert] // served by name (SetSNICert), nil if none
 }
 
 // NewManager loads (or creates) the CA and a valid leaf, or loads the
@@ -133,7 +136,12 @@ func (m *Manager) CA() *CA { return m.ca }
 func (m *Manager) Current() *tls.Certificate { return m.cur.Load() }
 
 // GetCertificate implements tls.Config.GetCertificate.
-func (m *Manager) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	if hello != nil {
+		if c := m.sniFor(hello.ServerName); c != nil {
+			return c, nil
+		}
+	}
 	c := m.cur.Load()
 	if c == nil {
 		return nil, errors.New("tls: no certificate loaded")
@@ -147,7 +155,12 @@ func (m *Manager) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error)
 // changed (a broken pair keeps the old one in service). It reports whether
 // the served certificate was replaced.
 func (m *Manager) Check() (bool, error) {
-	return m.check(false)
+	sniChanged, sniErr := m.reloadSNI()
+	changed, err := m.check(false)
+	if err == nil {
+		err = sniErr
+	}
+	return changed || sniChanged, err
 }
 
 // Reissue issues a new leaf now, whatever the state of the current one.
@@ -220,7 +233,7 @@ func (m *Manager) warnIfExpired(leaf *x509.Certificate) {
 
 // Status describes the CA and the served certificate.
 func (m *Manager) Status() Status {
-	st := Status{Mode: m.Mode()}
+	st := Status{Mode: m.Mode(), SNI: m.sniStatus()}
 	if m.ca != nil {
 		st.CAFingerprint = m.ca.Fingerprint()
 	}

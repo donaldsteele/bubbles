@@ -14,6 +14,15 @@
 <p class="lead">{{.Instance}} is a bubbles chat server on this local network. It works without the internet and all app traffic is encrypted with HTTPS.</p>
 </header>
 
+{{if .TailnetURL}}
+<section class="card" aria-labelledby="tailnet">
+<h2 id="tailnet">On Tailscale?</h2>
+{{if .TailnetTrusted}}<p>On a device in the same tailnet you can skip the certificate step: this address has a trusted certificate, from home or anywhere.</p>
+{{else}}<p>On a device in the same tailnet, install the certificate below, then use this address from home or anywhere.</p>
+{{end}}<p><a class="button{{if not .TailnetTrusted}} secondary{{end}}" href="{{.TailnetURL}}">{{.TailnetURL}}</a></p>
+</section>
+{{end}}
+
 {{if .HasCA}}
 <section class="card" aria-labelledby="trust">
 <h2 id="trust">1. Trust this server's certificate</h2>

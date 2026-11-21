@@ -77,8 +77,16 @@ function showServer(state: ViewState): void {
   const list = el("ul", { class: "servers", "aria-label": "Servers found on this network" });
   const url = el("input", {
     type: "text", id: "server", autocomplete: "off", spellcheck: "false", placeholder: "192.168.1.20 or bubbles.local",
-    value: state.serverUrl,
+    value: state.serverUrl, "aria-describedby": "server-hint",
   });
+  // mDNS does not cross a VPN, so a server on a Tailscale tailnet never shows
+  // up in the list above.
+  const tailnetHint = el(
+    "p",
+    { class: "muted hint", id: "server-hint" },
+    "On Tailscale? Servers on your tailnet are not found automatically. " +
+      "Type the server's Tailscale name or address, for example chat-pi.tail1234.ts.net or 100.101.102.103.",
+  );
   const port = el("input", {
     type: "text", id: "port", inputmode: "numeric", autocomplete: "off", placeholder: "28226", value: state.port,
   });
@@ -135,6 +143,7 @@ function showServer(state: ViewState): void {
     el("div", { class: "row" }, search),
     el("label", { for: "server" }, "Server address"),
     url,
+    tailnetHint,
     el("label", { for: "port" }, "Onboarding port (optional)"),
     port,
     el("div", { class: "row" }, cont),

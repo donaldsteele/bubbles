@@ -42,8 +42,11 @@ type Config struct {
 	TLSCert     string   `json:"tls_cert"`
 	TLSKey      string   `json:"tls_key"`
 	TLSExtraDNS []string `json:"tls_extra_dns"`
-	AllowPublic bool     `json:"allow_public"`
-	PrintConfig bool     `json:"print_config"`
+	// TailscaleCert serves the HTTPS certificate Tailscale issues for this
+	// machine's MagicDNS name to connections for that name.
+	TailscaleCert bool `json:"tailscale_cert"`
+	AllowPublic   bool `json:"allow_public"`
+	PrintConfig   bool `json:"print_config"`
 }
 
 // Options are the inputs to Parse besides the arguments.
@@ -86,6 +89,7 @@ func newFlagSet(c *Config, extraDNS *string, defDir string) *flag.FlagSet {
 	str(&c.TLSCert, "tls-cert", "", "TLS certificate file (requires --tls-key; disables local issuance)")
 	str(&c.TLSKey, "tls-key", "", "TLS private key file (requires --tls-cert)")
 	str(extraDNS, "tls-extra-dns", "", "extra DNS names for the certificate, comma separated")
+	boolean(&c.TailscaleCert, "tailscale-cert", "serve Tailscale's HTTPS certificate for this machine's MagicDNS name (the tailnet must have HTTPS certificates on; the name is published in public Certificate Transparency logs)")
 	boolean(&c.AllowPublic, "allow-public", "start even when the host has no private LAN address")
 	boolean(&c.PrintConfig, "print-config", "print the resolved configuration as JSON and exit")
 	return fs

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -66,7 +67,48 @@ func verifyPinned(chain []*x509.Certificate, serverName string, want []byte, now
 		}
 		return nil
 	}
+	// A Tailscale MagicDNS name (<machine>.<tailnet>.ts.net) is served the
+	// publicly trusted certificate Tailscale issues for it (bubbles serve
+	// --tailscale-cert), which does not chain to the bubbles CA. Only the
+	// machine holding that name in its tailnet can obtain one, so a chain
+	// that passes the system's own verification for exactly that name is
+	// accepted there. Every other host still needs the pinned CA.
+	if isTailnetName(serverName) {
+		if verifySystem(chain, serverName, now) == nil {
+			return nil
+		}
+	}
 	return errPinMismatch
+}
+
+// isTailnetName reports whether name is a Tailscale MagicDNS machine name:
+// at least three labels ending in .ts.net.
+func isTailnetName(name string) bool {
+	name = strings.ToLower(strings.TrimSuffix(name, "."))
+	return strings.HasSuffix(name, ".ts.net") && strings.Count(name, ".") >= 3
+}
+
+// systemRoots is the system certificate pool; a variable for tests.
+var systemRoots = func() (*x509.CertPool, error) { return x509.SystemCertPool() }
+
+// verifySystem checks chain against the system roots for serverName.
+func verifySystem(chain []*x509.Certificate, serverName string, now time.Time) error {
+	roots, err := systemRoots()
+	if err != nil {
+		return err
+	}
+	inter := x509.NewCertPool()
+	for _, c := range chain[1:] {
+		inter.AddCert(c)
+	}
+	_, err = chain[0].Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: inter,
+		DNSName:       serverName,
+		CurrentTime:   now,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	return err
 }
 
 // newHTTPClient builds the client used for all requests. A caller-supplied

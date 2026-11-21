@@ -47,6 +47,11 @@ type Options struct {
 	// RegistrationOpen reports whether sign-up is open right now; nil means
 	// unknown and the page says nothing about sign-up.
 	RegistrationOpen func() bool
+	// Tailnet returns the server's HTTPS address on its Tailscale MagicDNS
+	// name and whether that address has a publicly trusted certificate
+	// (--tailscale-cert), so no CA install is needed for it; "" when the
+	// name is not usable. Nil means none.
+	Tailnet func() (url string, trusted bool)
 	// Logger receives template errors; nil discards them.
 	Logger *slog.Logger
 }

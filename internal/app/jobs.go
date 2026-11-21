@@ -49,6 +49,8 @@ func (a *App) defaultJobs() []Job {
 		{Name: "tls-san-watch", Interval: SANWatchInterval, Run: a.checkCert},
 		// Renews the leaf when fewer than 30 days remain.
 		{Name: "tls-renewal", Interval: RenewCheckInterval, Run: a.checkCert},
+		// Renews the Tailscale certificate (--tailscale-cert).
+		{Name: "tailscale-cert", Interval: TailscaleCertInterval, Run: a.refreshTailscaleCert},
 		// Deletes events older than the 7-day resume window.
 		{Name: "events-prune", Interval: events.PruneInterval, Run: a.pruneEvents},
 		// Moves presence online -> idle -> offline (5 min activity, 30 s grace).

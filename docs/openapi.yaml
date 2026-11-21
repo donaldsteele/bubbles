@@ -6243,6 +6243,28 @@ components:
         leaf_fingerprint: {type: string}
         leaf_not_after: {type: string, format: date-time}
         sans: {type: array, items: {type: string}}
+        tailscale:
+          $ref: "#/components/schemas/AdminTailscale"
+
+    AdminTailscale:
+      type: object
+      additionalProperties: false
+      description: >-
+        The server machine on its Tailscale tailnet. Omitted from `AdminTLS` when the server is
+        not on a tailnet and `--tailscale-cert` is off. With `--tailscale-cert` the server serves
+        the certificate Tailscale issues for `dns_name` to connections for that name, and the
+        local-CA certificate to all others.
+      required: [running, dns_name, url, ips, cert_enabled, cert_active, ca_covers_name]
+      properties:
+        running: {type: boolean}
+        dns_name: {type: string, description: "MagicDNS name; empty when MagicDNS is off."}
+        url: {type: string, description: "HTTPS address on the MagicDNS name; empty without one."}
+        ips: {type: array, items: {type: string}}
+        cert_enabled: {type: boolean, description: "--tailscale-cert is on."}
+        cert_active: {type: boolean, description: "The Tailscale certificate is being served."}
+        cert_not_after: {type: string, format: date-time}
+        cert_error: {type: string, description: "Why the Tailscale certificate is not served."}
+        ca_covers_name: {type: boolean, description: "The local CA may sign dns_name."}
 
     BackupRequest:
       type: object

@@ -68,6 +68,13 @@ func TestNormalizeServerURL(t *testing.T) {
 		{" https://host:28225/ ", "https://host:28225", false},
 		{"https://[fe80::1]:28225", "https://[fe80::1]:28225", false},
 		{"[::1]", "https://[::1]:28225", false},
+		// Tailscale: the node's 100.x address and its MagicDNS name. mDNS does
+		// not cross a tailnet, so these are always typed.
+		{"100.101.102.103", "https://100.101.102.103:28225", false},
+		{"100.101.102.103:28225", "https://100.101.102.103:28225", false},
+		{"chat-pi.tail1234.ts.net", "https://chat-pi.tail1234.ts.net:28225", false},
+		{"https://chat-pi.tail1234.ts.net:28225", "https://chat-pi.tail1234.ts.net:28225", false},
+		{" https://chat-pi.tail1234.ts.net/ ", "https://chat-pi.tail1234.ts.net:28225", false},
 		{"", "", true},
 		{"http://host:28225", "", true},
 		{"https://host:28225/app", "", true},
@@ -92,6 +99,8 @@ func TestOnboardingURLFor(t *testing.T) {
 		{"https://192.168.1.20:28225", "", "http://192.168.1.20:28226", false},
 		{"https://bubbles.local:28225", "9090", "http://bubbles.local:9090", false},
 		{"https://[fe80::1]:28225", "", "http://[fe80::1]:28226", false},
+		{"https://100.101.102.103:28225", "", "http://100.101.102.103:28226", false},
+		{"https://chat-pi.tail1234.ts.net:28225", "", "http://chat-pi.tail1234.ts.net:28226", false},
 		{"https://h:28225", "80;rm", "", true},
 		{"::bad", "", "", true},
 	}
