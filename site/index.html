@@ -26,6 +26,8 @@
     <nav aria-label="Sections">
       <a href="#join">Join</a>
       <a href="#start">Get started</a>
+      <a href="#pi">Raspberry Pi</a>
+      <a href="#tailscale">Tailscale</a>
       <a href="#features">Features</a>
       <a href="#alerts">Alerts</a>
       <a href="#integrations">Integrations</a>
@@ -44,7 +46,7 @@
   <section class="hero" id="top">
     <div class="orbs" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
     <div class="wrap narrow">
-      <p class="pill"><span class="pulse" aria-hidden="true"></span> Open source · Windows, macOS, Linux &amp; Docker · one binary</p>
+      <p class="pill"><span class="pulse" aria-hidden="true"></span> Open source · Windows, macOS, Linux, Raspberry Pi &amp; Docker · one binary</p>
       <h1>Chat for everyone on <em>your&nbsp;network</em>.</h1>
       <p class="capability">Channels, DMs, files and alerts for the whole LAN, from one server and no internet connection.</p>
       <p class="lede">Run bubbles on any computer that stays on. Phones, laptops and desktops join in the browser over HTTPS, signed by a certificate authority bubbles creates for you. netdiag and your own scripts post alerts that everyone sees.</p>
@@ -110,7 +112,7 @@
       </ol>
       <div class="term console">
         <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">bubbles</span></div>
-        <div class="out" tabindex="0" role="region" aria-label="What the bubbles console prints at start"><code>bubbles v0.3.0 is running
+        <div class="out" tabindex="0" role="region" aria-label="What the bubbles console prints at start"><code>bubbles v0.4.0 is running
 
   Open:        https://192.168.1.20:28225/
   Onboarding:  http://192.168.1.20:28226/
@@ -142,6 +144,82 @@
             <button type="button" class="zoom" aria-label="Enlarge screenshot: the login page on a phone"><img src="assets/shots/phone-login-dark.png" width="1170" height="2532" loading="lazy" alt="The login page on a phone with a Create an account link under the sign-in form"></button></div><figcaption><b>Login.</b> A Create an account link appears while sign-up is open.</figcaption></figure>
         </div>
       </div>
+    </div>
+  </section>
+
+<section class="band pi-band" id="pi">
+    <div class="wrap">
+      <p class="eyebrow">Raspberry Pi</p>
+      <h2>A chat server the size of a deck of cards.</h2>
+      <p class="sub">bubbles needs a computer that stays on, and a Raspberry Pi is the ideal one: a Pi 4 or 5 (or a Zero 2 W for a small group) on 64-bit Raspberry Pi OS draws a few watts and serves a whole house or LAN party. Any 64-bit Linux box works the same way.</p>
+      <div class="split">
+        <div>
+          <div class="term">
+            <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">ssh pi@chat-pi · install as a service</span></div>
+            <div class="cmd"><code><span class="prompt">$</span> curl -LO https://github.com/donaldsteele/bubbles/releases/download/v0.4.0/bubbles-v0.4.0-linux-arm64.zip</code></div>
+            <div class="cmd"><code><span class="prompt">$</span> unzip bubbles-v0.4.0-linux-arm64.zip bubbles &amp;&amp; sudo install -m 755 bubbles /usr/local/bin/</code></div>
+            <div class="cmd"><code><span class="prompt">$</span> sudo bubbles service install</code></div>
+            <div class="out"><code><span class="ok">service installed and started</span> (data directory /var/lib/bubbles)</code></div>
+            <div class="cmd"><code><span class="prompt">$</span> sudo journalctl -u bubbles -n 20      <span class="cmt"># addresses and the admin password</span></code></div>
+          </div>
+          <p class="note">The service runs as its own <code>bubbles</code> user, starts at boot and restarts if it stops. The first admin password is also in <code>/var/lib/bubbles/admin-password.txt</code>. Prefer containers? The Docker image is multi-arch, so <code>docker run --network host -v bubbles-data:/data ghcr.io/donaldsteele/bubbles</code> works on a Pi too.</p>
+        </div>
+        <div>
+          <h3 class="minor">Why a Pi works well</h3>
+          <ul class="plays pi-list">
+            <li><code>always on</code><span>A few watts, silent, and nobody turns it off by accident</span></li>
+            <li><code>boot-proof</code><span>A systemd service that comes back after a power cut</span></li>
+            <li><code>found by name</code><span>Advertised as <b>bubbles.local</b>, so the tray app and phones find it</span></li>
+            <li><code>backups</code><span><b>bubbles backup</b> writes an encrypted archive, say to a USB stick</span></li>
+            <li><code>portable</code><span>Take it to the LAN party, then reset it for the next one</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band tailnet-band" id="tailscale">
+    <div class="wrap">
+      <p class="eyebrow">Beyond the LAN</p>
+      <h2>Your tailnet is your LAN.</h2>
+      <p class="sub">Put <a href="https://tailscale.com/">Tailscale</a> on the server and on your devices, and bubbles is there from anywhere: the office, a phone on mobile data, a friend's house. Still no port forwarding, no public server and no cloud account, and bubbles already admits tailnet addresses as private.</p>
+      <div class="split">
+        <div>
+          <div class="term">
+            <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">chat-pi · bubbles on a tailnet</span></div>
+            <div class="cmd"><code><span class="prompt">$</span> sudo tailscale set --operator=bubbles      <span class="cmt"># let the service fetch its certificate</span></code></div>
+            <div class="cmd"><code><span class="prompt">$</span> sudo bubbles service install --tailscale-cert</code></div>
+            <div class="cmd"><code><span class="prompt">$</span> sudo journalctl -u bubbles -n 20</code></div>
+            <div class="out"><code>bubbles v0.4.0 is running
+
+  Open:        https://192.168.1.20:28225/
+               https://100.101.102.103:28225/
+  Onboarding:  http://192.168.1.20:28226/
+  Tailscale:   https://chat-pi.tail1234.ts.net:28225/  (Tailscale certificate, --tailscale-cert)
+
+  Tailscale certificate ready, no CA install needed on your tailnet:
+    <span class="ok">https://chat-pi.tail1234.ts.net:28225/</span></code></div>
+          </div>
+          <p class="note">For <code>--tailscale-cert</code>, turn on HTTPS certificates for your tailnet in the Tailscale admin console (DNS page). The machine name then appears in the public Certificate Transparency logs, as every Let's Encrypt name does. Without it, tailnet devices use the local CA like everyone else.</p>
+        </div>
+        <div>
+          <h3 class="minor">What you get on a tailnet</h3>
+          <ul class="plays">
+            <li><code>anywhere</code><span>Open the 100.x address or the MagicDNS name from any device on your tailnet</span></li>
+            <li><code>no CA install</code><span>With <b>--tailscale-cert</b>, the ts.net name has a publicly trusted certificate; LAN devices keep the local CA</span></li>
+            <li><code>push</code><span>Notifications reach your phone wherever it is, while the server can reach the browser push services</span></li>
+            <li><code>tray app</code><span>Type the tailnet name or address; it signs in and notifies as on the LAN</span></li>
+            <li><code>admin page</code><span>Security shows the tailnet name, addresses and certificate state</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="cards tailnet-cards">
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-lock"></use></svg><h3>Encrypted twice</h3><p>WireGuard wraps every packet between tailnet devices, and bubbles' own HTTPS runs inside it. Even the onboarding page and the CA download travel encrypted on a tailnet.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-key-round"></use></svg><h3>Two certificates, one server</h3><p>Connections for the tailnet name get Tailscale's certificate; every other address gets the local CA's. Each device sees one it already trusts.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-shield-check"></use></svg><h3>Tight by default</h3><p>A CA created on a tailnet may sign this machine's MagicDNS name, never all of ts.net. Only private and tailnet addresses get in; the public internet still gets 403.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-users"></use></svg><h3>Share it with friends</h3><p>Share the server machine with someone else's tailnet, send them an invite link, and they chat with your group without ever touching your network.</p></article>
+      </div>
+      <p class="honest"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-radar"></use></svg><span><b>Not found automatically:</b> Tailscale does not carry mDNS, so a server reached over the tailnet does not appear in the tray app's list or as <code>bubbles.local</code>. Type its MagicDNS name or 100.x address instead. A CA created before the server joined the tailnet does not cover the MagicDNS name; use the 100.x address or <code>--tailscale-cert</code>.</span></p>
     </div>
   </section>
 
@@ -343,7 +421,7 @@
           <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-key-round"></use></svg><span><b>Its own certificate authority.</b> bubbles creates an ECDSA P-256 CA on first start and issues the server certificate for its IP addresses and <code>bubbles.local</code>.</span></li>
           <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-lock"></use></svg><span><b>Accounts you control.</b> argon2id passwords, login lockout, secure cookies, and an admin password that is printed only on the server console and saved owner-only on disk.</span></li>
           <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-shield-check"></use></svg><span><b>Locked-down web app.</b> A strict Content Security Policy, origin checks, rate limits, and no scripts, fonts or images from anywhere else.</span></li>
-          <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-eye-off"></use></svg><span><b>Privacy by default.</b> Photo location data is removed, push notifications carry no message text by default, and the server refuses clients from outside private address ranges.</span></li>
+          <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-eye-off"></use></svg><span><b>Privacy by default.</b> Photo location data is removed, push notifications carry no message text by default, and the server refuses clients from outside private and Tailscale address ranges.</span></li>
           <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-archive"></use></svg><span><b>Encrypted backups.</b> One command writes an age-encrypted archive; restore it on any host.</span></li>
         </ul>
       </div>
@@ -403,7 +481,7 @@
         <div class="plat">
           <h3><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-server"></use></svg>Server</h3>
           <a class="button primary" href="https://github.com/donaldsteele/bubbles/releases">Windows, macOS, Linux</a>
-          <ul><li>amd64 and arm64</li><li>Linux arm64 runs on a Raspberry Pi</li><li>Checksums in <code>SHA256SUMS</code></li></ul>
+          <ul><li>amd64 and arm64</li><li>Linux arm64 runs on a Raspberry Pi (<a href="#pi">setup</a>)</li><li>Checksums in <code>SHA256SUMS</code></li></ul>
         </div>
         <div class="plat">
           <h3><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-container"></use></svg>Docker</h3>

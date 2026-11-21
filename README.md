@@ -82,7 +82,7 @@ The default data directory is `%LOCALAPPDATA%\bubbles` on Windows,
 
 Common flags, all also available as `BUBBLES_*` environment variables:
 `--https-addr`, `--http-addr`, `--mdns-name` (default `bubbles`, shown as
-`bubbles.local`), `--no-mdns`, `--tls-cert` and `--tls-key`, `--tls-extra-dns`,
+`bubbles.local`), `--no-mdns`, `--tls-cert` and `--tls-key`, `--tls-extra-dns`, `--tailscale-cert`,
 `--allow-public`. Run `bubbles serve -h` for the list.
 
 ## Docker
@@ -124,6 +124,59 @@ bubbles service status
 Windows runs bubbles as a Windows service with a firewall rule on the Private
 network profile only. macOS uses a LaunchDaemon, and Linux a systemd unit
 (`deploy/systemd/bubbles.service`). Details: [docs/admin.md](docs/admin.md#running-as-a-service).
+
+## Raspberry Pi
+
+A Raspberry Pi makes a good always-on bubbles server: a Pi 4 or 5 (or a
+Zero 2 W for a small group) running 64-bit Raspberry Pi OS. Any 64-bit Linux
+machine works the same way. Over SSH:
+
+```sh
+curl -LO https://github.com/donaldsteele/bubbles/releases/download/v0.4.0/bubbles-v0.4.0-linux-arm64.zip
+unzip bubbles-v0.4.0-linux-arm64.zip bubbles
+sudo install -m 755 bubbles /usr/local/bin/
+sudo bubbles service install
+sudo journalctl -u bubbles -n 20     # the addresses and the admin password
+```
+
+The service runs as a `bubbles` user with its data in `/var/lib/bubbles` (the
+first admin password is also in `/var/lib/bubbles/admin-password.txt`), starts at
+boot and restarts when it stops. Install the binary outside your home folder,
+as above: the unit cannot read `/home`. The Docker image is multi-arch too, so
+the [Docker](#docker) commands work on a Pi as they are. Back it up with
+`bubbles backup` (see [Backup and restore](#backup-and-restore)).
+
+## Over Tailscale
+
+With [Tailscale](https://tailscale.com/) on the server and your devices,
+bubbles is reachable from anywhere on your tailnet, with no port forwarding
+and no public server. bubbles already treats tailnet addresses
+(`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) as private, includes the server's 100.x
+address in its certificate, and re-issues the certificate when Tailscale
+connects after the server started.
+
+- **By address:** open `https://100.101.102.103:28225/` (the server's Tailscale
+  address) on any device that installed the bubbles CA.
+- **By MagicDNS name, local CA:** a CA created while the server was already on
+  the tailnet permits the server's MagicDNS name (only that name, not all of
+  `ts.net`), so `https://chat-pi.tail1234.ts.net:28225/` works too. An older CA
+  does not cover it; the banner and the admin Security page say so.
+- **By MagicDNS name, no CA install:** start the server with
+  `--tailscale-cert` (or `bubbles service install --tailscale-cert`). bubbles then
+  fetches the certificate Tailscale issues for its MagicDNS name with
+  `tailscale cert`, renews it, and serves it to connections for that name, while
+  every other address keeps the local CA. Devices on the tailnet open the
+  MagicDNS address without installing anything. It needs HTTPS certificates
+  turned on for the tailnet (Tailscale admin console, DNS), and the name then
+  appears in the public Certificate Transparency logs. When bubbles runs as a
+  service (not root), let it fetch certificates once with
+  `sudo tailscale set --operator=bubbles`.
+
+Tailscale does not carry mDNS, so a server on the tailnet does not show up in
+the tray app's list or as `bubbles.local`: type its MagicDNS name or 100.x address.
+The tray app accepts the Tailscale certificate for a `*.ts.net` name. Web push
+keeps working wherever the phone is, as long as the server can reach the
+browser push services.
 
 ## Connect netdiag and other apps
 

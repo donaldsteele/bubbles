@@ -290,3 +290,14 @@ figcaption b{color:var(--dim);font-weight:600}
 #start .feature + .feature{margin-top:0}
 .phones.one{grid-template-columns:minmax(0,280px)}
 @media (max-width:900px){.phones.one{grid-template-columns:minmax(0,280px)}}
+
+/* Raspberry Pi and Tailscale bands */
+.pi-band,.tailnet-band{position:relative}
+.tailnet-band::before{content:"";position:absolute;inset:40px 0 auto;height:520px;pointer-events:none;background:radial-gradient(ellipse 45% 50% at 20% 30%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%)}
+.tailnet-band .wrap,.pi-band .wrap{position:relative}
+.tailnet-cards{margin-top:40px}
+.pi-band .plays li>span,.tailnet-band .plays li>span{flex:1 1 200px;min-width:0}
+.pi-band .plays li>span b,.tailnet-band .plays li>span b{color:var(--fg);font-weight:600}
+.tailnet-band .term .out code,.pi-band .term .out code{white-space:pre-wrap}
+.tailnet-band .honest{margin-top:28px}
+.pi-band .cmt,.tailnet-band .cmt{color:#a39a90}
