@@ -1,5 +1,8 @@
 # bubbles
 
+**Website: [donaldsteele.github.io/bubbles](https://donaldsteele.github.io/bubbles/)** ·
+[Download](https://github.com/donaldsteele/bubbles/releases/latest)
+
 A secure, self-hosted chat platform for a local network. One server binary runs
 on any LAN host, and every device joins through the web app or the desktop tray app.
 
